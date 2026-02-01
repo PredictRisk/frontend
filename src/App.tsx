@@ -1,6 +1,7 @@
 import { sdk } from "@farcaster/miniapp-sdk";
 import { useEffect } from "react";
 import { useAccount, useConnect, useSignMessage } from "wagmi";
+import RiskGame from "./pages/Game";
 
 function App() {
   useEffect(() => {
@@ -9,8 +10,8 @@ function App() {
 
   return (
     <>
-      <div>Mini App + Vite + TS + React + Wagmi</div>
       <ConnectMenu />
+      <RiskGame />
     </>
   );
 }
@@ -30,7 +31,7 @@ function ConnectMenu() {
   }
 
   return (
-    <button type="button" onClick={() => connect({ connector: connectors[0] })}>
+    <button type="button" onClick={() => connect({ connector: connectors[1] })}>
       Connect
     </button>
   );
