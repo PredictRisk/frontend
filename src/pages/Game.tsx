@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+
+import Navbar from '../components/Navbar';
 
 interface Territory {
   id: number;
@@ -28,6 +30,10 @@ export default function RiskGame() {
   const [phase, setPhase] = useState<'reinforce' | 'attack' | 'fortify'>('reinforce');
   const [reinforcements, setReinforcements] = useState(3);
   const [message, setMessage] = useState('Place your reinforcements');
+
+  // Calculate total troops for each player
+  const redTroops = territories.filter(t => t.owner === 'red').reduce((sum, t) => sum + t.troops, 0);
+  const blueTroops = territories.filter(t => t.owner === 'blue').reduce((sum, t) => sum + t.troops, 0);
 
   const handleTerritoryClick = (id: number) => {
     const territory = territories[id];
@@ -236,6 +242,8 @@ export default function RiskGame() {
         .phase-attack { background: rgba(198,40,40,0.3); border: 1px solid #ef5350; }
         .phase-fortify { background: rgba(30,136,229,0.3); border: 1px solid #42a5f5; }
       `}</style>
+
+      <Navbar troops={{ red: redTroops, blue: blueTroops }} />
 
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '30px' }}>
