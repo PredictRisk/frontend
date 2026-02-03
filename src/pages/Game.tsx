@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { useAccount } from 'wagmi';
 
 import Navbar from '../components/Navbar';
+import { useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 
 interface Territory {
   id: number;
@@ -23,7 +25,22 @@ const initialTerritories: Territory[] = [
   { id: 9, name: 'Darkhollow', owner: 'red', troops: 3, neighbors: [6, 7, 8] },
 ];
 
+const TERRITORIES: [] = [
+  { id: 0, name: 'Northland', neighbors: [1, 3, 4] },
+  { id: 1, name: 'Frostheim', neighbors: [0, 2, 4] },
+  { id: 2, name: 'Eastmark', neighbors: [1, 4, 5] },
+  { id: 3, name: 'Westmoor', neighbors: [0, 4, 6] },
+  { id: 4, name: 'Heartland', neighbors: [0, 1, 2, 3, 5, 6, 7] },
+  { id: 5, name: 'Ironcoast', neighbors: [2, 4, 7, 8] },
+  { id: 6, name: 'Shadowvale', neighbors: [3, 4, 7, 9] },
+  { id: 7, name: 'Midlands', neighbors: [4, 5, 6, 8, 9] },
+  { id: 8, name: 'Sunreach', neighbors: [5, 7, 9] },
+  { id: 9, name: 'Darkhollow', neighbors: [6, 7, 8] },
+];
+
 export default function RiskGame() {
+  const { address } = useAccount();
+
   const [territories, setTerritories] = useState<Territory[]>(initialTerritories);
   const [currentPlayer, setCurrentPlayer] = useState<'red' | 'blue'>('red');
   const [selectedTerritory, setSelectedTerritory] = useState<number | null>(null);
@@ -31,9 +48,20 @@ export default function RiskGame() {
   const [reinforcements, setReinforcements] = useState(3);
   const [message, setMessage] = useState('Place your reinforcements');
 
-  // Calculate total troops for each player
-  const redTroops = territories.filter(t => t.owner === 'red').reduce((sum, t) => sum + t.troops, 0);
-  const blueTroops = territories.filter(t => t.owner === 'blue').reduce((sum, t) => sum + t.troops, 0);
+
+   // Fetch all territory data
+  const territoryData = TERRITORIES.map((t) => {
+    const { armies } = useTerritoryArmies(t.id);
+    const { owner } = useTerritoryOwner(t.id);
+    const { isProtected } = useSpawnProtection(t.id);
+    return { ...t, armies, owner, isProtected };
+  });
+
+  // Calculate total stationed armies for player
+  const totalArmies = territoryData
+    .filter((t) => t.owner?.toLowerCase() === address?.toLowerCase())
+    .reduce((sum, t) => sum + parseFloat(t.armies), 0)
+    .toFixed(0);
 
   const handleTerritoryClick = (id: number) => {
     const territory = territories[id];
@@ -243,7 +271,7 @@ export default function RiskGame() {
         .phase-fortify { background: rgba(30,136,229,0.3); border: 1px solid #42a5f5; }
       `}</style>
 
-      <Navbar troops={{ red: redTroops, blue: blueTroops }} />
+      <Navbar totalArmies={totalArmies} />
 
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: '30px' }}>
