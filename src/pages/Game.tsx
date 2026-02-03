@@ -5,6 +5,7 @@ import Navbar from '../components/Navbar';
 import { useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 import TerritoryCard from '../components/TerritoryCard';
 import ClaimButton from '../components/ClaimButton';
+import ActionPanel from '../components/ActionPanel';
 
 interface Territory {
   id: number;
@@ -139,6 +140,16 @@ export default function RiskGame() {
           }}>
             Click a territory to station/withdraw armies • Select your territory, then an adjacent enemy to attack
           </div>
+
+          {/* Action Panel */}
+          <ActionPanel
+            selectedTerritory={selectedTerritory}
+            targetTerritory={targetTerritory}
+            onClose={() => {
+              setSelectedTerritory(null);
+              setTargetTerritory(null);
+            }}
+          />
         </div>
       )}
     </div>
