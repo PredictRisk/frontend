@@ -4,6 +4,7 @@ import { useAccount } from 'wagmi';
 import Navbar from '../components/Navbar';
 import { useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 import TerritoryCard from '../components/TerritoryCard';
+import ClaimButton from '../components/ClaimButton';
 
 interface Territory {
   id: number;
@@ -93,6 +94,15 @@ export default function RiskGame() {
         </div>
       ) : (
         <div style={{ padding: '30px' }}>
+          {/* Header */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'center',
+            marginBottom: '30px',
+          }}>
+            <ClaimButton />
+          </div>
+
           {/* Territory Grid */}
           <div style={{
             display: 'grid',
