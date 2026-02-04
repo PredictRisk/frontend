@@ -5,6 +5,7 @@ import { useAccount, useConnect, useSignMessage } from "wagmi";
 import RiskGame from "./pages/Game";
 import Sidebar from "./components/Sidebar";
 import MapView from "./pages/MapView";
+import Polymarket from "./pages/Polymarket";
 
 function App() {
   useEffect(() => {
@@ -28,7 +29,7 @@ function App() {
           <Routes>
             <Route path="/" element={<MapView />} />
             <Route path="/dashboard" element={<RiskGame />} />
-            <Route path="/polymarket" element={<RiskGame />} />
+            <Route path="/polymarket" element={<Polymarket />} />
             <Route path="/stats" element={<RiskGame />} />
             <Route path="/admin" element={<RiskGame />} />
           </Routes>
