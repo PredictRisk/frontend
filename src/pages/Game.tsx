@@ -6,6 +6,7 @@ import { useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../ho
 import TerritoryCard from '../components/TerritoryCard';
 import ClaimButton from '../components/ClaimButton';
 import ActionPanel from '../components/ActionPanel';
+import MintTerritoryPanel from '../components/MintTerritoryPanel';
 
 interface Territory {
   id: number;
@@ -100,8 +101,11 @@ export default function RiskGame() {
             display: 'flex',
             justifyContent: 'center',
             marginBottom: '30px',
+            gap: '10px',
           }}>
+
             <ClaimButton />
+            <MintTerritoryPanel />
           </div>
 
           {/* Territory Grid */}
