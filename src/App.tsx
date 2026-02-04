@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { useAccount, useConnect, useSignMessage } from "wagmi";
 import RiskGame from "./pages/Game";
 import Sidebar from "./components/Sidebar";
+import MapView from "./pages/MapView";
 
 function App() {
   useEffect(() => {
@@ -25,7 +26,7 @@ function App() {
           }}
         >
           <Routes>
-            <Route path="/" element={<RiskGame />} />
+            <Route path="/" element={<MapView />} />
             <Route path="/dashboard" element={<RiskGame />} />
             <Route path="/polymarket" element={<RiskGame />} />
             <Route path="/stats" element={<RiskGame />} />
