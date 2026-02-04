@@ -13,8 +13,10 @@
     "@farcaster/miniapp-sdk": "latest",
     "@farcaster/miniapp-wagmi-connector": "latest",
     "@tanstack/react-query": "5.45.1",
+    "lucide-react": "^0.563.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.13.0",
     "viem": "latest",
     "wagmi": "latest"
   },
