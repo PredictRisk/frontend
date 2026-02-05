@@ -15,63 +15,48 @@ import { Users, Swords, ArrowRight, Info } from "lucide-react";
 import { useAccount } from "wagmi";
 
 import ActionModal from "../components/ActionModal";
+import { useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 
 // Territory data with positions for the map layout
 const TERRITORIES = [
-  { id: 1, name: "Northern Highlands", x: 250, y: 80 },
-  { id: 2, name: "Eastern Plains", x: 580, y: 150 },
-  { id: 3, name: "Southern Marshes", x: 680, y: 480 },
-  { id: 4, name: "Western Mountains", x: 120, y: 280 },
-  { id: 5, name: "Central Valley", x: 480, y: 320 },
-  { id: 6, name: "Coastal Shores", x: 850, y: 400 },
-  { id: 7, name: "Frozen Tundra", x: 80, y: 480 },
-  { id: 8, name: "Desert Expanse", x: 350, y: 500 },
-  { id: 9, name: "Jungle Depths", x: 980, y: 550 },
-  { id: 10, name: "Volcanic Ridge", x: 450, y: 620 },
-  { id: 11, name: "Ancient Ruins", x: 900, y: 700 },
-  { id: 12, name: "Crystal Caverns", x: 620, y: 720 },
+  { id: 0, name: "Northern Highlands", x: 250, y: 80 },
+  { id: 1, name: "Eastern Plains", x: 580, y: 150 },
+  { id: 2, name: "Southern Marshes", x: 680, y: 480 },
+  { id: 3, name: "Western Mountains", x: 120, y: 280 },
+  { id: 4, name: "Central Valley", x: 480, y: 320 },
+  { id: 5, name: "Coastal Shores", x: 850, y: 400 },
+  { id: 6, name: "Frozen Tundra", x: 80, y: 480 },
+  { id: 7, name: "Desert Expanse", x: 350, y: 500 },
+  { id: 8, name: "Jungle Depths", x: 980, y: 550 },
+  { id: 9, name: "Volcanic Ridge", x: 450, y: 620 },
+  { id: 10, name: "Ancient Ruins", x: 900, y: 700 },
+  { id: 11, name: "Crystal Caverns", x: 620, y: 720 },
 ];
 
 // Border connections between territories
 const BORDERS: [number, number][] = [
+  [0, 1],
+  [0, 3],
+  [0, 4],
   [1, 2],
   [1, 4],
   [1, 5],
-  [2, 3],
+  [2, 4],
   [2, 5],
-  [2, 6],
-  [3, 5],
+  [2, 7],
+  [3, 4],
   [3, 6],
-  [3, 8],
   [4, 5],
   [4, 7],
-  [5, 6],
   [5, 8],
-  [6, 9],
-  [7, 8],
+  [6, 7],
+  [7, 9],
+  [7, 11],
   [8, 10],
-  [8, 12],
+  [9, 10],
   [9, 11],
   [10, 11],
-  [10, 12],
-  [11, 12],
 ];
-
-// Mock data - replace with your contract hooks
-const mockTerritoryData: Record<number, { armies: number; owner: string | null }> = {
-  1: { armies: 45, owner: "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720" },
-  2: { armies: 30, owner: "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720" },
-  3: { armies: 25, owner: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
-  4: { armies: 38, owner: "0x1234567890abcdef1234567890abcdef12345678" },
-  5: { armies: 42, owner: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
-  6: { armies: 28, owner: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
-  7: { armies: 20, owner: "0x1234567890abcdef1234567890abcdef12345678" },
-  8: { armies: 15, owner: null },
-  9: { armies: 12, owner: null },
-  10: { armies: 27, owner: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
-  11: { armies: 33, owner: "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" },
-  12: { armies: 10, owner: null },
-};
 
 // Mock current user address - replace with actual connected address
 const MOCK_USER_ADDRESS = "0x1234567890abcdef1234567890abcdef12345678";
@@ -340,6 +325,15 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
   const [showAttackModal, setShowAttackModal] = useState(false);
   const [targetTerritory, setTargetTerritory] = useState<number | null>(null);
 
+  const territoryData = TERRITORIES.map((t) => {
+    const { armies } = useTerritoryArmies(t.id);
+    const { owner } = useTerritoryOwner(t.id);
+    const { isProtected } = useSpawnProtection(t.id);
+    return { ...t, armies: parseFloat(armies) || 0, owner: owner ?? null, isProtected };
+  });
+
+  console.log(territoryData)
+
   // Get neighbors of selected territory
   const selectedNeighbors = useMemo(() => {
     if (selectedTerritory === null) return new Set<number>();
@@ -355,7 +349,7 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
   const selectedTerritoryData = useMemo(() => {
     if (selectedTerritory === null) return null;
     const territory = TERRITORIES.find((t) => t.id === selectedTerritory);
-    const data = mockTerritoryData[selectedTerritory];
+    const data = territoryData[selectedTerritory];
     return territory ? { ...territory, ...data } : null;
   }, [selectedTerritory]);
 
@@ -368,7 +362,7 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
   // Handle territory selection
   const handleSelect = useCallback(
     (id: number) => {
-      const data = mockTerritoryData[id];
+      const data = territoryData[id];
       const isOwned = data.owner?.toLowerCase() === userAddress.toLowerCase();
 
       // If clicking on own territory, select it
@@ -411,7 +405,7 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
   const initialNodes: Node<TerritoryNodeData>[] = useMemo(
     () =>
       TERRITORIES.map((territory) => {
-        const data = mockTerritoryData[territory.id];
+        const data = territoryData[territory.id];
         const isOwned = data.owner?.toLowerCase() === userAddress.toLowerCase();
         const isNeighbor = selectedNeighbors.has(territory.id);
 
@@ -511,7 +505,7 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
         }}
       >
         <Info size={18} style={{ color: "#6b7280" }} />
-        {selectedTerritory && isSelectedOwned
+        {selectedTerritory !== null && isSelectedOwned
           ? "Your territory is selected. Click on neighboring territories to attack or move troops."
           : "Click on your territories to see attack and move options."}
       </div>
@@ -665,19 +659,19 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
       </div>
 
       {/* Move Modal */}
-      {showMoveModal && selectedTerritory && (
+      {showMoveModal && selectedTerritory !== null && selectedTerritoryData && (
         <ActionModal
           type="move"
-          fromTerritory={selectedTerritoryData!}
+          fromTerritory={selectedTerritoryData}
           toTerritoryId={targetTerritory}
           neighbors={Array.from(selectedNeighbors)
             .filter((id) => {
-              const data = mockTerritoryData[id];
+              const data = territoryData[id];
               return data.owner?.toLowerCase() === userAddress.toLowerCase();
             })
             .map((id) => ({
               ...TERRITORIES.find((t) => t.id === id)!,
-              ...mockTerritoryData[id],
+              ...territoryData[id],
             }))}
           onClose={() => {
             setShowMoveModal(false);
@@ -692,19 +686,19 @@ export default function MapView({ onAttack, onMove }: MapViewProps) {
       )}
 
       {/* Attack Modal */}
-      {showAttackModal && selectedTerritory && (
+      {showAttackModal && selectedTerritory !== null && selectedTerritoryData && (
         <ActionModal
           type="attack"
-          fromTerritory={selectedTerritoryData!}
+          fromTerritory={selectedTerritoryData}
           toTerritoryId={targetTerritory}
           neighbors={Array.from(selectedNeighbors)
             .filter((id) => {
-              const data = mockTerritoryData[id];
+              const data = territoryData[id];
               return data.owner?.toLowerCase() !== userAddress.toLowerCase();
             })
             .map((id) => ({
               ...TERRITORIES.find((t) => t.id === id)!,
-              ...mockTerritoryData[id],
+              ...territoryData[id],
             }))}
           onClose={() => {
             setShowAttackModal(false);
