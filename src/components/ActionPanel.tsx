@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useWaitForTransactionReceipt, useWriteContract, useReadContract } from 'wagmi';
 import { parseEther } from 'viem';
 
 import riskGameAbi from '../artifacts/contracts/RiskGame.sol/RiskGame.json';
 import erc20Abi from '../artifacts/contracts/ArmyToken.sol/ArmyToken.json';
-import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, useArmyBalance, useArmyAllowance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
+import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, useArmyBalance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 
 interface Territory {
   id: number;
@@ -37,19 +37,30 @@ function ActionPanel({
   const { address } = useAccount();
   const [amount, setAmount] = useState('');
   const [action, setAction] = useState<'station' | 'withdraw' | 'attack'>('station');
+  const [hasApproved, setHasApproved] = useState(false); // Track approval locally
 
   const { balance, refetch: refetchBalance } = useArmyBalance(address);
-  const { allowance, refetch: refetchAllowance } = useArmyAllowance(address);
   const { armies: selectedArmies, refetch: refetchSelected } = useTerritoryArmies(selectedTerritory ?? 0);
   const { armies: targetArmies, refetch: refetchTarget } = useTerritoryArmies(targetTerritory ?? 0);
   const { owner: selectedOwner } = useTerritoryOwner(selectedTerritory ?? 0);
   const { isProtected } = useSpawnProtection(targetTerritory ?? 0);
 
+  // Read allowance directly in this component for better control
+  const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
+    address: ARMY_TOKEN_ADDRESS,
+    abi: erc20Abi.abi,
+    functionName: 'allowance',
+    args: address ? [address, RISK_GAME_ADDRESS] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const allowance = (allowanceData as bigint) ?? BigInt(0);
+
   const isYourTerritory = selectedOwner?.toLowerCase() === address?.toLowerCase();
 
   // Approve
-  const { writeContract: writeApprove, data: approveHash, isPending: isApproving } = useWriteContract();
-  const { isSuccess: approveSuccess } = useWaitForTransactionReceipt({ hash: approveHash });
+  const { writeContract: writeApprove, data: approveHash, isPending: isApproving, reset: resetApprove } = useWriteContract();
+  const { isSuccess: approveSuccess, isLoading: isApproveConfirming } = useWaitForTransactionReceipt({ hash: approveHash });
 
   // Station
   const { writeContract: writeStation, data: stationHash, isPending: isStationing } = useWriteContract();
@@ -63,17 +74,43 @@ function ActionPanel({
   const { writeContract: writeAttack, data: attackHash, isPending: isAttacking } = useWriteContract();
   const { isSuccess: attackSuccess } = useWaitForTransactionReceipt({ hash: attackHash });
 
+  // Handle approval success
   useEffect(() => {
-    if (approveSuccess || stationSuccess || withdrawSuccess || attackSuccess) {
+    if (approveSuccess) {
+      console.log('Approval successful, refetching allowance...');
+      setHasApproved(true); // Set local flag immediately
+      refetchAllowance().then(() => {
+        console.log('Allowance refetched');
+        resetApprove();
+      });
+    }
+  }, [approveSuccess]);
+
+  // Refetch data after successful transactions
+  useEffect(() => {
+    if (stationSuccess || withdrawSuccess || attackSuccess) {
       refetchBalance();
       refetchAllowance();
       refetchSelected();
       refetchTarget();
       setAmount('');
+      setHasApproved(false); // Reset approval flag after action
     }
-  }, [approveSuccess, stationSuccess, withdrawSuccess, attackSuccess]);
+  }, [stationSuccess, withdrawSuccess, attackSuccess]);
 
-  const needsApproval = action === 'station' && parseEther(amount || '0') > allowance;
+  // Reset hasApproved when amount changes (in case they want to station more than approved)
+  useEffect(() => {
+    if (amount) {
+      const amountWei = parseEther(amount);
+      if (amountWei <= allowance) {
+        setHasApproved(false); // Don't need the flag if allowance is sufficient
+      }
+    }
+  }, [amount, allowance]);
+
+  // Check if approval is needed
+  const amountWei = parseEther(amount || '0');
+  const needsApproval = action === 'station' && !hasApproved && amountWei > allowance;
 
   const handleApprove = () => {
     writeApprove({
@@ -85,7 +122,7 @@ function ActionPanel({
   };
 
   const handleStation = () => {
-    if (!selectedTerritory) return;
+    if (selectedTerritory === null) return;
     writeStation({
       address: RISK_GAME_ADDRESS,
       abi: riskGameAbi.abi,
@@ -95,7 +132,7 @@ function ActionPanel({
   };
 
   const handleWithdraw = () => {
-    if (!selectedTerritory) return;
+    if (selectedTerritory === null) return;
     writeWithdraw({
       address: RISK_GAME_ADDRESS,
       abi: riskGameAbi.abi,
@@ -108,7 +145,7 @@ function ActionPanel({
     if (selectedTerritory === null || targetTerritory === null) return;
     writeAttack({
       address: RISK_GAME_ADDRESS,
-      abi: riskGameAbi,
+      abi: riskGameAbi.abi,
       functionName: 'attack',
       args: [BigInt(selectedTerritory), BigInt(targetTerritory), parseEther(amount)],
     });
@@ -117,6 +154,7 @@ function ActionPanel({
   if (selectedTerritory === null) return null;
 
   const territory = TERRITORIES[selectedTerritory];
+  const isLoading = isApproving || isApproveConfirming || isStationing || isWithdrawing || isAttacking;
 
   return (
     <div style={{
@@ -135,6 +173,7 @@ function ActionPanel({
     }}>
       <button
         onClick={onClose}
+        disabled={isLoading}
         style={{
           position: 'absolute',
           top: '10px',
@@ -142,7 +181,7 @@ function ActionPanel({
           background: 'none',
           border: 'none',
           color: '#888',
-          cursor: 'pointer',
+          cursor: isLoading ? 'not-allowed' : 'pointer',
           fontSize: '18px',
         }}
       >
@@ -158,6 +197,7 @@ function ActionPanel({
           <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
             <button
               onClick={() => setAction('station')}
+              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -165,14 +205,16 @@ function ActionPanel({
                 border: '1px solid #d4af37',
                 borderRadius: '4px',
                 color: action === 'station' ? '#1a1a2e' : '#d4af37',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontFamily: '"Cinzel", serif',
+                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Station
             </button>
             <button
               onClick={() => setAction('withdraw')}
+              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -180,14 +222,16 @@ function ActionPanel({
                 border: '1px solid #d4af37',
                 borderRadius: '4px',
                 color: action === 'withdraw' ? '#1a1a2e' : '#d4af37',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontFamily: '"Cinzel", serif',
+                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Withdraw
             </button>
             <button
               onClick={() => setAction('attack')}
+              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -195,8 +239,9 @@ function ActionPanel({
                 border: '1px solid #ef5350',
                 borderRadius: '4px',
                 color: action === 'attack' ? '#fff' : '#ef5350',
-                cursor: 'pointer',
+                cursor: isLoading ? 'not-allowed' : 'pointer',
                 fontFamily: '"Cinzel", serif',
+                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Attack
@@ -216,6 +261,7 @@ function ActionPanel({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Amount"
+              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '10px',
@@ -224,23 +270,25 @@ function ActionPanel({
                 borderRadius: '4px',
                 color: '#fff',
                 fontSize: '16px',
+                opacity: isLoading ? 0.6 : 1,
               }}
             />
-            {action === 'station' && needsApproval ? (
+            {needsApproval ? (
               <button
                 onClick={handleApprove}
-                disabled={isApproving}
+                disabled={isApproving || isApproveConfirming || !amount}
                 style={{
                   padding: '10px 20px',
                   background: '#ff9800',
                   border: 'none',
                   borderRadius: '4px',
                   color: '#fff',
-                  cursor: 'pointer',
+                  cursor: (isApproving || isApproveConfirming || !amount) ? 'not-allowed' : 'pointer',
                   fontFamily: '"Cinzel", serif',
+                  opacity: (isApproving || isApproveConfirming || !amount) ? 0.6 : 1,
                 }}
               >
-                {isApproving ? 'Approving...' : 'Approve'}
+                {isApproving ? 'Approving...' : isApproveConfirming ? 'Confirming...' : 'Approve'}
               </button>
             ) : (
               <button
@@ -273,7 +321,12 @@ function ActionPanel({
             )}
           </div>
 
-          <div style={{ marginTop: '10px', fontSize: '12px', color: '#888' }}>
+          {/* Debug info - remove in production */}
+          <div style={{ marginTop: '10px', fontSize: '11px', color: '#666' }}>
+            Allowance: {allowance.toString()} | Amount: {amountWei.toString()} | Needs Approval: {needsApproval ? 'Yes' : 'No'} | Has Approved: {hasApproved ? 'Yes' : 'No'}
+          </div>
+
+          <div style={{ marginTop: '5px', fontSize: '12px', color: '#888' }}>
             Your balance: {parseFloat(balance).toFixed(2)} Army Tokens
           </div>
         </>
