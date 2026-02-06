@@ -116,7 +116,12 @@ function ActionPanel({
 
   if (selectedTerritory === null) return null;
 
-  const territory = TERRITORIES[selectedTerritory];
+  const getTerritoryName = (id: number | null) => {
+    if (id === null) return "Unknown";
+    return TERRITORIES[id]?.name ?? `Territory ${id}`;
+  };
+
+  const territoryName = getTerritoryName(selectedTerritory);
 
   return (
     <div style={{
@@ -150,7 +155,7 @@ function ActionPanel({
       </button>
 
       <h3 style={{ margin: '0 0 15px 0', fontSize: '18px' }}>
-        {territory.name} — {selectedArmies} armies
+        {territoryName} — {selectedArmies} armies
       </h3>
 
       {isYourTerritory ? (
@@ -205,7 +210,7 @@ function ActionPanel({
 
           {action === 'attack' && targetTerritory !== null && (
             <div style={{ marginBottom: '10px', fontSize: '14px', color: '#888' }}>
-              Target: {TERRITORIES[targetTerritory].name} ({targetArmies} armies)
+              Target: {getTerritoryName(targetTerritory)} ({targetArmies} armies)
               {isProtected && <span style={{ color: '#2196f3' }}> 🛡️ Protected</span>}
             </div>
           )}
