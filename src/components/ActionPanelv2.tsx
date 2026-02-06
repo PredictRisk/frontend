@@ -4,7 +4,7 @@ import { parseEther } from 'viem';
 
 import riskGameAbi from '../artifacts/contracts/RiskGame.sol/RiskGame.json';
 import erc20Abi from '../artifacts/contracts/ArmyToken.sol/ArmyToken.json';
-import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, useArmyBalance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
+import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, useArmyBalance, useArmyAllowance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 
 interface Territory {
   id: number;
@@ -25,7 +25,7 @@ const TERRITORIES: Territory[] = [
   { id: 9, name: 'Darkhollow', neighbors: [6, 7, 8] },
 ];
 
-function ActionPanel({
+function ActionPanelv2({
   selectedTerritory,
   targetTerritory,
   onClose,
@@ -37,7 +37,7 @@ function ActionPanel({
   const { address } = useAccount();
   const [amount, setAmount] = useState('');
   const [action, setAction] = useState<'station' | 'withdraw' | 'attack'>('station');
-  const [hasApproved, setHasApproved] = useState(false); // Track approval locally
+  const [hasApproved, setHasApproved] = useState(false);
 
   const { balance, refetch: refetchBalance } = useArmyBalance(address);
   const { armies: selectedArmies, refetch: refetchSelected } = useTerritoryArmies(selectedTerritory ?? 0);
@@ -45,7 +45,9 @@ function ActionPanel({
   const { owner: selectedOwner } = useTerritoryOwner(selectedTerritory ?? 0);
   const { isProtected } = useSpawnProtection(targetTerritory ?? 0);
 
-  // Read allowance directly in this component for better control
+  const isYourTerritory = selectedOwner?.toLowerCase() === address?.toLowerCase();
+
+   // Read allowance directly in this component for better control
   const { data: allowanceData, refetch: refetchAllowance } = useReadContract({
     address: ARMY_TOKEN_ADDRESS,
     abi: erc20Abi.abi,
@@ -53,10 +55,6 @@ function ActionPanel({
     args: address ? [address, RISK_GAME_ADDRESS] : undefined,
     query: { enabled: !!address },
   });
-
-  const allowance = (allowanceData as bigint) ?? BigInt(0);
-
-  const isYourTerritory = selectedOwner?.toLowerCase() === address?.toLowerCase();
 
   // Approve
   const { writeContract: writeApprove, data: approveHash, isPending: isApproving, reset: resetApprove } = useWriteContract();
@@ -86,7 +84,6 @@ function ActionPanel({
     }
   }, [approveSuccess]);
 
-  // Refetch data after successful transactions
   useEffect(() => {
     if (stationSuccess || withdrawSuccess || attackSuccess) {
       refetchBalance();
@@ -94,19 +91,11 @@ function ActionPanel({
       refetchSelected();
       refetchTarget();
       setAmount('');
-      setHasApproved(false); // Reset approval flag after action
+      setHasApproved(false); 
     }
   }, [stationSuccess, withdrawSuccess, attackSuccess]);
 
-  // Reset hasApproved when amount changes (in case they want to station more than approved)
-  useEffect(() => {
-    if (amount) {
-      const amountWei = parseEther(amount);
-      if (amountWei <= allowance) {
-        setHasApproved(false); // Don't need the flag if allowance is sufficient
-      }
-    }
-  }, [amount, allowance]);
+  const allowance = (allowanceData as bigint) ?? BigInt(0);
 
   // Check if approval is needed
   const amountWei = parseEther(amount || '0');
@@ -160,6 +149,8 @@ function ActionPanel({
 
   const territoryName = getTerritoryName(selectedTerritory);
 
+  const isLoading = isApproving || isApproveConfirming || isStationing || isWithdrawing || isAttacking;
+
   return (
     <div style={{
       position: 'fixed',
@@ -177,7 +168,6 @@ function ActionPanel({
     }}>
       <button
         onClick={onClose}
-        disabled={isLoading}
         style={{
           position: 'absolute',
           top: '10px',
@@ -185,7 +175,7 @@ function ActionPanel({
           background: 'none',
           border: 'none',
           color: '#888',
-          cursor: isLoading ? 'not-allowed' : 'pointer',
+          cursor: 'pointer',
           fontSize: '18px',
         }}
       >
@@ -201,7 +191,6 @@ function ActionPanel({
           <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
             <button
               onClick={() => setAction('station')}
-              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -209,16 +198,14 @@ function ActionPanel({
                 border: '1px solid #d4af37',
                 borderRadius: '4px',
                 color: action === 'station' ? '#1a1a2e' : '#d4af37',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: 'pointer',
                 fontFamily: '"Cinzel", serif',
-                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Station
             </button>
             <button
               onClick={() => setAction('withdraw')}
-              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -226,16 +213,14 @@ function ActionPanel({
                 border: '1px solid #d4af37',
                 borderRadius: '4px',
                 color: action === 'withdraw' ? '#1a1a2e' : '#d4af37',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: 'pointer',
                 fontFamily: '"Cinzel", serif',
-                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Withdraw
             </button>
             <button
               onClick={() => setAction('attack')}
-              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '8px',
@@ -243,9 +228,8 @@ function ActionPanel({
                 border: '1px solid #ef5350',
                 borderRadius: '4px',
                 color: action === 'attack' ? '#fff' : '#ef5350',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
+                cursor: 'pointer',
                 fontFamily: '"Cinzel", serif',
-                opacity: isLoading ? 0.6 : 1,
               }}
             >
               Attack
@@ -265,7 +249,6 @@ function ActionPanel({
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="Amount"
-              disabled={isLoading}
               style={{
                 flex: 1,
                 padding: '10px',
@@ -274,7 +257,6 @@ function ActionPanel({
                 borderRadius: '4px',
                 color: '#fff',
                 fontSize: '16px',
-                opacity: isLoading ? 0.6 : 1,
               }}
             />
             {needsApproval ? (
@@ -325,7 +307,6 @@ function ActionPanel({
             )}
           </div>
 
-          {/* Debug info - remove in production */}
           <div style={{ marginTop: '10px', fontSize: '11px', color: '#666' }}>
             Allowance: {allowance.toString()} | Amount: {amountWei.toString()} | Needs Approval: {needsApproval ? 'Yes' : 'No'} | Has Approved: {hasApproved ? 'Yes' : 'No'}
           </div>
@@ -343,4 +324,4 @@ function ActionPanel({
   );
 }
 
-export default ActionPanel;
+export default ActionPanelv2;

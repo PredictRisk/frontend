@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useReadContract, useReadContracts } from "wagmi";
 
-import ActionPanel from "../components/ActionPanel";
+import ActionPanelv2 from "../components/ActionPanelv2";
 import SvgRiskMap from "../components/SvgRiskMap";
 import territoryNftAbi from "../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json";
 import worldSvg from "../assets/world.svg?raw";
@@ -426,7 +426,7 @@ export default function MapV2() {
         </div>
       </div>
 
-      <ActionPanel
+      <ActionPanelv2
         selectedTerritory={
           selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null
         }
