@@ -28,10 +28,24 @@ const TERRITORIES: Territory[] = [
 function ActionPanel({
   selectedTerritory,
   targetTerritory,
+  selectedTerritoryExists,
+  attackableTargets,
+  neighborNames,
+  onSelectTarget,
+  onActionComplete,
   onClose,
 }: {
   selectedTerritory: number | null;
   targetTerritory: number | null;
+  selectedTerritoryExists?: boolean;
+  attackableTargets?: Array<{
+    id: number;
+    name: string;
+    owner: `0x${string}` | null;
+  }>;
+  neighborNames?: string[];
+  onSelectTarget?: (id: number) => void;
+  onActionComplete?: () => void;
   onClose: () => void;
 }) {
   const { address } = useAccount();
@@ -66,8 +80,18 @@ function ActionPanel({
       refetchSelected();
       refetchTarget();
       setAmount('');
+      onActionComplete?.();
     }
-  }, [approveSuccess, stationSuccess, attackSuccess, refetchBalance, refetchAllowance, refetchSelected, refetchTarget]);
+  }, [
+    approveSuccess,
+    stationSuccess,
+    attackSuccess,
+    refetchBalance,
+    refetchAllowance,
+    refetchSelected,
+    refetchTarget,
+    onActionComplete,
+  ]);
 
   const needsApproval = action === 'station' && parseEther(amount || '0') > allowanceRaw;
 
@@ -146,6 +170,38 @@ function ActionPanel({
 
       {isYourTerritory ? (
         <>
+          {action === 'attack' && attackableTargets && attackableTargets.length > 0 && (
+            <div style={{ marginBottom: '12px' }}>
+              <div style={{ fontSize: '12px', color: '#888', marginBottom: '6px' }}>
+                Attackable neighbors
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                {attackableTargets.map((target) => {
+                  const isSelectedTarget = targetTerritory === target.id;
+                  const label = target.owner ? target.name : `${target.name} (empty)`;
+                  return (
+                    <button
+                      key={target.id}
+                      type="button"
+                      onClick={() => onSelectTarget?.(target.id)}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        background: isSelectedTarget ? 'rgba(239,68,68,0.25)' : 'rgba(255,255,255,0.05)',
+                        color: isSelectedTarget ? '#fecaca' : '#e2e8f0',
+                        cursor: 'pointer',
+                        fontFamily: '"Cinzel", serif',
+                        fontSize: '11px',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
             <button
               onClick={() => setAction('station')}
@@ -251,8 +307,15 @@ function ActionPanel({
           </div>
         </>
       ) : (
-        <div style={{ color: '#ef5350' }}>
-          This territory belongs to someone else. Select your own territory to attack from.
+        <div style={{ color: selectedTerritoryExists ? '#ef5350' : '#94a3b8' }}>
+          {selectedTerritoryExists
+            ? 'This territory belongs to someone else.'
+            : 'Unclaimed territory. Claim it from the top bar if you have no territories yet.'}
+          {neighborNames && neighborNames.length > 0 && (
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#9aa0b8' }}>
+              Neighbors: {neighborNames.join(', ')}
+            </div>
+          )}
         </div>
       )}
     </div>

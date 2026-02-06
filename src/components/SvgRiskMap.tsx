@@ -13,6 +13,8 @@ interface SvgRiskMapProps {
   targetTerritory: string | null;
   neighborIds: Set<string>;
   claimedCodes: Set<string>;
+  ownedCodes: Set<string>;
+  isSelectedOwned: boolean;
   onSelect: (code: string) => void;
 }
 
@@ -21,6 +23,9 @@ const COLOR_DEFAULT = "#f8fafc";
 const COLOR_SELECTED = "#fbbf24";
 const COLOR_NEIGHBOR = "#ef4444";
 const COLOR_CLAIMED = "#9ca3af";
+const COLOR_OWNED = "#ef4444";
+const COLOR_NEUTRAL_SELECTED = "#fbbf24";
+const COLOR_NEUTRAL_NEIGHBOR = "#fde68a";
 const COLOR_BORDER = "rgba(10, 15, 30, 0.9)";
 const COLOR_BORDER_FAINT = "rgba(10, 15, 30, 0.45)";
 const COLOR_BASE = "rgba(255,255,255,0.08)";
@@ -32,6 +37,8 @@ function SvgRiskMap({
   targetTerritory,
   neighborIds,
   claimedCodes,
+  ownedCodes,
+  isSelectedOwned,
   onSelect,
 }: SvgRiskMapProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -67,13 +74,17 @@ function SvgRiskMap({
       const isNeighbor = neighborIds.has(territory.code);
       const isTarget = targetTerritory === territory.code;
 
+      const neighborFill = isSelectedOwned ? COLOR_NEIGHBOR : COLOR_NEUTRAL_NEIGHBOR;
+      const selectedFill = isSelectedOwned ? COLOR_SELECTED : COLOR_NEUTRAL_SELECTED;
       const fill = isSelected
-        ? COLOR_SELECTED
+        ? selectedFill
         : isNeighbor || isTarget
-          ? COLOR_NEIGHBOR
-          : claimedCodes.has(territory.code)
-            ? COLOR_CLAIMED
-            : COLOR_DEFAULT;
+          ? neighborFill
+          : ownedCodes.has(territory.code)
+            ? COLOR_OWNED
+            : claimedCodes.has(territory.code)
+              ? COLOR_CLAIMED
+              : COLOR_DEFAULT;
 
       const stroke = isSelected || isNeighbor || isTarget ? COLOR_BORDER : COLOR_BORDER_FAINT;
 
@@ -91,7 +102,15 @@ function SvgRiskMap({
       path.setAttribute("data-territory-code", territory.code);
     });
 
-  }, [territories, selectedTerritory, targetTerritory, neighborIds, claimedCodes]);
+  }, [
+    territories,
+    selectedTerritory,
+    targetTerritory,
+    neighborIds,
+    claimedCodes,
+    ownedCodes,
+    isSelectedOwned,
+  ]);
 
   return (
     <div

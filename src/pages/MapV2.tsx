@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAccount, useReadContract, useReadContracts } from "wagmi";
+import type { Abi } from "viem";
 
 import ActionPanel from "../components/ActionPanel";
 import SvgRiskMap from "../components/SvgRiskMap";
@@ -68,7 +69,7 @@ export default function MapV2() {
 
   const { data: territoryBalance, refetch: refetchTerritoryBalance } = useReadContract({
     address: TERRITORY_NFT_ADDRESS,
-    abi: territoryNftAbi.abi,
+    abi: territoryNftAbi.abi as unknown as Abi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
     query: { enabled: !!address },
@@ -98,16 +99,23 @@ export default function MapV2() {
     [countries.length],
   );
 
-  const { data: existsList } = useReadContracts({
+  const { data: existsList, refetch: refetchExistsList } = useReadContracts({
     allowFailure: true,
     contracts: territoryIds.map((id) => ({
       address: TERRITORY_NFT_ADDRESS,
-      abi: territoryNftAbi.abi,
+      abi: territoryNftAbi.abi as unknown as Abi,
       functionName: "exists",
       args: [BigInt(id)],
     })),
     query: { enabled: territoryIds.length > 0 },
   });
+
+  const contractIdByCode = useMemo(() => {
+    if (countries.length > CONTRACT_TERRITORIES.length) {
+      return new Map(countries.map((country, index) => [country.code, index]));
+    }
+    return new Map(CONTRACT_TERRITORIES.map((territory) => [territory.svgId, territory.id]));
+  }, [countries]);
 
   const claimedCodes = useMemo(() => {
     const claimed = new Set<string>();
@@ -120,18 +128,51 @@ export default function MapV2() {
     return claimed;
   }, [existsList, countries]);
 
-  const contractIdByCode = useMemo(() => {
-    if (countries.length > CONTRACT_TERRITORIES.length) {
-      return new Map(countries.map((country, index) => [country.code, index]));
-    }
-    return new Map(CONTRACT_TERRITORIES.map((territory) => [territory.svgId, territory.id]));
-  }, [countries]);
+  const mintedIds = useMemo(() => {
+    const ids: number[] = [];
+    existsList?.forEach((entry, index) => {
+      if (entry?.status === "success" && entry.result === true) {
+        ids.push(index);
+      }
+    });
+    return ids;
+  }, [existsList]);
+
+  const { data: ownerResults, refetch: refetchOwners } = useReadContracts({
+    allowFailure: true,
+    contracts: mintedIds.map((id) => ({
+      address: TERRITORY_NFT_ADDRESS,
+      abi: territoryNftAbi.abi as unknown as Abi,
+      functionName: "ownerOf",
+      args: [BigInt(id)],
+    })),
+    query: { enabled: mintedIds.length > 0 },
+  });
+
+  const ownedCodes = useMemo(() => {
+    const owned = new Set<string>();
+    if (!address) return owned;
+    const idToCode = new Map<number, string>();
+    countries.forEach((country) => {
+      const id = contractIdByCode.get(country.code);
+      if (id !== undefined) idToCode.set(id, country.code);
+    });
+    mintedIds.forEach((id, index) => {
+      const ownerEntry = ownerResults?.[index];
+      if (ownerEntry?.status !== "success") return;
+      const owner = ownerEntry.result as `0x${string}`;
+      if (owner.toLowerCase() !== address.toLowerCase()) return;
+      const code = idToCode.get(id);
+      if (code) owned.add(code);
+    });
+    return owned;
+  }, [address, countries, contractIdByCode, mintedIds, ownerResults]);
 
   const selectedId = selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null;
 
   const { data: existsData } = useReadContract({
     address: TERRITORY_NFT_ADDRESS,
-    abi: territoryNftAbi.abi,
+    abi: territoryNftAbi.abi as unknown as Abi,
     functionName: "exists",
     args: selectedId !== null ? [BigInt(selectedId)] : undefined,
     query: { enabled: selectedId !== null },
@@ -144,6 +185,50 @@ export default function MapV2() {
     if (selectedTerritory === null) return new Set<string>();
     return neighborsByCode.get(selectedTerritory) ?? new Set<string>();
   }, [selectedTerritory, neighborsByCode]);
+
+  const selectedOwned = useMemo(() => {
+    if (!selectedTerritory || !address) return false;
+    return ownedCodes.has(selectedTerritory);
+  }, [selectedTerritory, address, ownedCodes]);
+
+  const selectedNeighborList = useMemo(() => {
+    if (!selectedTerritory) return [];
+    const neighbors = neighborsByCode.get(selectedTerritory) ?? new Set<string>();
+    return Array.from(neighbors).map((code) => {
+      const country = countries.find((item) => item.code === code);
+      return country?.name ?? code;
+    });
+  }, [selectedTerritory, neighborsByCode, countries]);
+
+  const attackableTargets = useMemo(() => {
+    if (!selectedTerritory || !ownedCodes.has(selectedTerritory)) return [];
+    const neighbors = neighborsByCode.get(selectedTerritory) ?? new Set<string>();
+    return Array.from(neighbors)
+      .map((code) => {
+        const id = contractIdByCode.get(code);
+        if (id === undefined) return null;
+        const country = countries.find((item) => item.code === code);
+        const ownerIndex = mintedIds.indexOf(id);
+        const ownerEntry = ownerIndex >= 0 ? ownerResults?.[ownerIndex] : undefined;
+        const owner =
+          ownerEntry?.status === "success" ? (ownerEntry.result as `0x${string}`) : null;
+        if (owner && address && owner.toLowerCase() === address.toLowerCase()) {
+          return null;
+        }
+        return {
+          id,
+          code,
+          name: country?.name ?? code,
+          owner,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: number;
+      code: string;
+      name: string;
+      owner: `0x${string}` | null;
+    }>;
+  }, [selectedTerritory, ownedCodes, neighborsByCode, contractIdByCode, countries, mintedIds, ownerResults]);
 
   const handleTerritoryClick = (code: string) => {
 
@@ -356,6 +441,8 @@ export default function MapV2() {
               targetTerritory={targetTerritory}
               neighborIds={selectedNeighbors}
               claimedCodes={claimedCodes}
+              ownedCodes={ownedCodes}
+              isSelectedOwned={selectedOwned}
               onSelect={handleTerritoryClick}
             />
           </div>
@@ -433,9 +520,26 @@ export default function MapV2() {
         targetTerritory={
           targetTerritory ? contractIdByCode.get(targetTerritory) ?? null : null
         }
+        selectedTerritoryExists={isAlreadyMinted}
+        attackableTargets={attackableTargets}
+        neighborNames={selectedNeighborList}
+        onSelectTarget={(id) => {
+          const codeEntry = countries.find((country) => {
+            const mappedId = contractIdByCode.get(country.code);
+            return mappedId === id;
+          });
+          if (codeEntry) {
+            setTargetTerritory(codeEntry.code);
+          }
+        }}
         onClose={() => {
           setSelectedTerritory(null);
           setTargetTerritory(null);
+        }}
+        onActionComplete={() => {
+          refetchTerritoryBalance();
+          refetchExistsList();
+          refetchOwners();
         }}
       />
     </div>
