@@ -2,6 +2,7 @@ import { sdk } from "@farcaster/miniapp-sdk";
 import { useEffect } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import RiskGame from "./pages/Game";
+import Admin from "./pages/Admin";
 import Sidebar from "./components/Sidebar";
 import MapView from "./pages/MapView";
 import Polymarket from "./pages/Polymarket";
@@ -34,7 +35,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/polymarket" element={<Polymarket />} />
             <Route path="/stats" element={<Stats />} />
-            <Route path="/admin" element={<RiskGame />} />
+            <Route path="/admin" element={<Admin />} />
           </Routes>
         </main>
       </div>

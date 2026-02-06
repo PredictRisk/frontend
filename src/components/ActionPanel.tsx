@@ -36,10 +36,10 @@ function ActionPanel({
 }) {
   const { address } = useAccount();
   const [amount, setAmount] = useState('');
-  const [action, setAction] = useState<'station' | 'withdraw' | 'attack'>('station');
+  const [action, setAction] = useState<'station' | 'attack'>('station');
 
   const { balance, refetch: refetchBalance } = useArmyBalance(address);
-  const { allowance, refetch: refetchAllowance } = useArmyAllowance(address);
+  const { allowanceRaw, refetch: refetchAllowance } = useArmyAllowance(address);
   const { armies: selectedArmies, refetch: refetchSelected } = useTerritoryArmies(selectedTerritory ?? 0);
   const { armies: targetArmies, refetch: refetchTarget } = useTerritoryArmies(targetTerritory ?? 0);
   const { owner: selectedOwner } = useTerritoryOwner(selectedTerritory ?? 0);
@@ -55,25 +55,21 @@ function ActionPanel({
   const { writeContract: writeStation, data: stationHash, isPending: isStationing } = useWriteContract();
   const { isSuccess: stationSuccess } = useWaitForTransactionReceipt({ hash: stationHash });
 
-  // Withdraw
-  const { writeContract: writeWithdraw, data: withdrawHash, isPending: isWithdrawing } = useWriteContract();
-  const { isSuccess: withdrawSuccess } = useWaitForTransactionReceipt({ hash: withdrawHash });
-
   // Attack
   const { writeContract: writeAttack, data: attackHash, isPending: isAttacking } = useWriteContract();
   const { isSuccess: attackSuccess } = useWaitForTransactionReceipt({ hash: attackHash });
 
   useEffect(() => {
-    if (approveSuccess || stationSuccess || withdrawSuccess || attackSuccess) {
+    if (approveSuccess || stationSuccess || attackSuccess) {
       refetchBalance();
       refetchAllowance();
       refetchSelected();
       refetchTarget();
       setAmount('');
     }
-  }, [approveSuccess, stationSuccess, withdrawSuccess, attackSuccess]);
+  }, [approveSuccess, stationSuccess, attackSuccess, refetchBalance, refetchAllowance, refetchSelected, refetchTarget]);
 
-  const needsApproval = action === 'station' && parseEther(amount || '0') > allowance;
+  const needsApproval = action === 'station' && parseEther(amount || '0') > allowanceRaw;
 
   const handleApprove = () => {
     writeApprove({
@@ -85,7 +81,7 @@ function ActionPanel({
   };
 
   const handleStation = () => {
-    if (!selectedTerritory) return;
+    if (selectedTerritory === null) return;
     writeStation({
       address: RISK_GAME_ADDRESS,
       abi: riskGameAbi.abi,
@@ -94,21 +90,11 @@ function ActionPanel({
     });
   };
 
-  const handleWithdraw = () => {
-    if (!selectedTerritory) return;
-    writeWithdraw({
-      address: RISK_GAME_ADDRESS,
-      abi: riskGameAbi.abi,
-      functionName: 'withdrawArmies',
-      args: [BigInt(selectedTerritory), parseEther(amount)],
-    });
-  };
-
   const handleAttack = () => {
     if (selectedTerritory === null || targetTerritory === null) return;
     writeAttack({
       address: RISK_GAME_ADDRESS,
-      abi: riskGameAbi,
+      abi: riskGameAbi.abi,
       functionName: 'attack',
       args: [BigInt(selectedTerritory), BigInt(targetTerritory), parseEther(amount)],
     });
@@ -177,21 +163,6 @@ function ActionPanel({
               Station
             </button>
             <button
-              onClick={() => setAction('withdraw')}
-              style={{
-                flex: 1,
-                padding: '8px',
-                background: action === 'withdraw' ? '#d4af37' : 'transparent',
-                border: '1px solid #d4af37',
-                borderRadius: '4px',
-                color: action === 'withdraw' ? '#1a1a2e' : '#d4af37',
-                cursor: 'pointer',
-                fontFamily: '"Cinzel", serif',
-              }}
-            >
-              Withdraw
-            </button>
-            <button
               onClick={() => setAction('attack')}
               style={{
                 flex: 1,
@@ -250,12 +221,10 @@ function ActionPanel({
             ) : (
               <button
                 onClick={
-                  action === 'station' ? handleStation :
-                  action === 'withdraw' ? handleWithdraw :
-                  handleAttack
+                  action === 'station' ? handleStation : handleAttack
                 }
                 disabled={
-                  isStationing || isWithdrawing || isAttacking ||
+                  isStationing || isAttacking ||
                   !amount ||
                   (action === 'attack' && (targetTerritory === null || isProtected))
                 }
@@ -270,9 +239,8 @@ function ActionPanel({
                   opacity: !amount ? 0.5 : 1,
                 }}
               >
-                {isStationing || isWithdrawing || isAttacking ? 'Processing...' :
+                {isStationing || isAttacking ? 'Processing...' :
                   action === 'station' ? 'Station' :
-                  action === 'withdraw' ? 'Withdraw' :
                   'Attack'}
               </button>
             )}

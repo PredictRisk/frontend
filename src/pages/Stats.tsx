@@ -4,15 +4,19 @@ import { formatEther } from "viem";
 
 import riskGameAbi from "../artifacts/contracts/RiskGame.sol/RiskGame.json";
 import territoryNftAbi from "../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json";
-import { RISK_GAME_ADDRESS, TERRITORY_NFT_ADDRESS } from "../hooks/useContract";
+import erc20Abi from "../artifacts/contracts/ArmyToken.sol/ArmyToken.json";
+import { SVG_TERRITORY_COUNT } from "../data/mapV2";
+import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, TERRITORY_NFT_ADDRESS } from "../hooks/useContract";
 
-const DAILY_BASE = 100;
-const DAILY_BONUS_PER_TERRITORY = 15;
+const MAX_TERRITORY_SCAN = SVG_TERRITORY_COUNT;
+const TOKEN_UNIT = 10n ** 18n;
 
 type PlayerStat = {
   address: string;
   territories: number;
   armies: bigint;
+  wallet: bigint;
+  score: bigint;
 };
 
 export default function Stats() {
@@ -24,41 +28,60 @@ export default function Stats() {
     functionName: "totalTerritories",
   });
 
-  const totalTerritories = typeof totalTerritoriesData === "bigint" ? Number(totalTerritoriesData) : 0;
+  const totalTerritories =
+    SVG_TERRITORY_COUNT ||
+    (typeof totalTerritoriesData === "bigint" ? Number(totalTerritoriesData) : 0);
 
+  const scanCount = Math.max(totalTerritories, MAX_TERRITORY_SCAN);
   const territoryIds = useMemo(
-    () => Array.from({ length: totalTerritories }, (_, index) => index),
-    [totalTerritories],
+    () => Array.from({ length: scanCount }, (_, index) => index),
+    [scanCount],
   );
+
+  const { data: existsResults } = useReadContracts({
+    allowFailure: true,
+    contracts: territoryIds.map((id) => ({
+      address: TERRITORY_NFT_ADDRESS,
+      abi: territoryNftAbi.abi,
+      functionName: "exists",
+      args: [BigInt(id)],
+    })),
+    query: { enabled: scanCount > 0 },
+  });
+
+  const mintedIds = useMemo(() => {
+    if (!existsResults) return [];
+    return territoryIds.filter((_, index) => existsResults[index]?.result === true);
+  }, [territoryIds, existsResults]);
 
   const { data: armiesData } = useReadContracts({
     allowFailure: true,
-    contracts: territoryIds.map((id) => ({
+    contracts: mintedIds.map((id) => ({
       address: RISK_GAME_ADDRESS,
       abi: riskGameAbi.abi,
       functionName: "territoryArmies",
       args: [BigInt(id)],
     })),
-    query: { enabled: totalTerritories > 0 },
+    query: { enabled: mintedIds.length > 0 },
   });
 
   const { data: ownerData } = useReadContracts({
     allowFailure: true,
-    contracts: territoryIds.map((id) => ({
+    contracts: mintedIds.map((id) => ({
       address: TERRITORY_NFT_ADDRESS,
       abi: territoryNftAbi.abi,
       functionName: "ownerOf",
       args: [BigInt(id)],
     })),
-    query: { enabled: totalTerritories > 0 },
+    query: { enabled: mintedIds.length > 0 },
   });
 
-  const { players, claimedCount, totalArmies } = useMemo(() => {
+  const { players: basePlayers, claimedCount, totalArmies } = useMemo(() => {
     const stats = new Map<string, PlayerStat>();
     let claimed = 0;
     let total = 0n;
 
-    territoryIds.forEach((id, index) => {
+    mintedIds.forEach((id, index) => {
       const armiesEntry = armiesData?.[index];
       const armies =
         armiesEntry?.status === "success" && typeof armiesEntry.result === "bigint"
@@ -71,24 +94,59 @@ export default function Stats() {
       if (ownerEntry?.status === "success" && typeof ownerEntry.result === "string") {
         const owner = ownerEntry.result.toLowerCase();
         claimed += 1;
-        const current = stats.get(owner) ?? { address: owner, territories: 0, armies: 0n };
+        const current = stats.get(owner) ?? {
+          address: owner,
+          territories: 0,
+          armies: 0n,
+          wallet: 0n,
+          score: 0n,
+        };
         stats.set(owner, {
           address: owner,
           territories: current.territories + 1,
           armies: current.armies + armies,
+          wallet: current.wallet,
+          score: current.score,
         });
       }
     });
 
-    const list = Array.from(stats.values()).sort((a, b) => {
+    return { players: Array.from(stats.values()), claimedCount: claimed, totalArmies: total };
+  }, [mintedIds, armiesData, ownerData]);
+
+  const playerAddresses = useMemo(() => basePlayers.map((player) => player.address), [basePlayers]);
+  const { data: balancesData } = useReadContracts({
+    allowFailure: true,
+    contracts: playerAddresses.map((playerAddress) => ({
+      address: ARMY_TOKEN_ADDRESS,
+      abi: erc20Abi.abi,
+      functionName: "balanceOf",
+      args: [playerAddress as `0x${string}`],
+    })),
+    query: { enabled: playerAddresses.length > 0 },
+  });
+
+  const players = useMemo(() => {
+    const withScores = basePlayers.map((player, index) => {
+      const balanceEntry = balancesData?.[index];
+      const wallet =
+        balanceEntry?.status === "success" && typeof balanceEntry.result === "bigint"
+          ? balanceEntry.result
+          : 0n;
+      const score =
+        wallet + player.armies + BigInt(player.territories) * 100n * TOKEN_UNIT;
+      return { ...player, wallet, score };
+    });
+
+    return withScores.sort((a, b) => {
+      if (b.score > a.score) return 1;
+      if (b.score < a.score) return -1;
       if (b.territories !== a.territories) return b.territories - a.territories;
       if (b.armies > a.armies) return 1;
       if (b.armies < a.armies) return -1;
       return 0;
     });
-
-    return { players: list, claimedCount: claimed, totalArmies: total };
-  }, [territoryIds, armiesData, ownerData]);
+  }, [basePlayers, balancesData]);
 
   const activePlayers = players.length;
   const unclaimedCount = Math.max(0, totalTerritories - claimedCount);
@@ -156,7 +214,6 @@ export default function Stats() {
 
         <div style={{ marginTop: "16px", display: "grid", gap: "12px" }}>
           {players.slice(0, 10).map((player, index) => {
-            const dailySpawn = DAILY_BASE + player.territories * DAILY_BONUS_PER_TERRITORY;
             const isYou = address && player.address === address.toLowerCase();
             return (
               <div
@@ -209,9 +266,10 @@ export default function Stats() {
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "22px", textAlign: "right" }}>
+                  <StatMini label="Score" value={Number.parseFloat(formatEther(player.score)).toFixed(0)} />
+                  <StatMini label="Wallet" value={Number.parseFloat(formatEther(player.wallet)).toFixed(0)} />
                   <StatMini label="Armies" value={Number.parseFloat(formatEther(player.armies)).toFixed(0)} />
                   <StatMini label="Territories" value={player.territories.toString()} />
-                  <StatMini label="Daily Spawn" value={`+${dailySpawn}`} />
                 </div>
               </div>
             );

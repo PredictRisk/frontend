@@ -53,6 +53,7 @@ function Polymarket() {
   const { writeContract, data: betHash, isPending: isBetPending } = useWriteContract();
   const { isLoading: isBetConfirming, isSuccess: isBetSuccess } =
     useWaitForTransactionReceipt({ hash: betHash });
+  const isBettingConfigured = !/^0x0{40}$/.test(BET_ESCROW_ADDRESS);
 
   const selectedOutcome = useMemo(() => {
     if (!market || selectedOutcomeIndex === null) return null;
@@ -213,6 +214,10 @@ function Polymarket() {
       setBetError("Load a market first.");
       return;
     }
+    if (!isBettingConfigured) {
+      setBetError("Betting contract not configured for this network.");
+      return;
+    }
     if (selectedOutcomeIndex === null || !selectedOutcome) {
       setBetError("Select an outcome.");
       return;
@@ -276,6 +281,7 @@ function Polymarket() {
         entryPriceCents: selectedOutcome.priceCents,
         amount,
         createdAt: Date.now(),
+        status: "open",
       });
 
       writeContract({
@@ -479,7 +485,12 @@ function Polymarket() {
                 </button>
               ))}
             </div>
-            {amount && allowanceRaw < parseSafeEther(amount) && (
+            {!isBettingConfigured && (
+              <div style={{ color: "#fca5a5", fontSize: "12px" }}>
+                Betting contract not configured for this network.
+              </div>
+            )}
+            {amount && allowanceRaw < parseSafeEther(amount) && isBettingConfigured && (
               <button
                 type="button"
                 onClick={() => approveMax()}
@@ -499,7 +510,7 @@ function Polymarket() {
             <button
               type="button"
               onClick={handlePlaceBet}
-              disabled={isBetPending}
+              disabled={isBetPending || !isBettingConfigured}
               style={{
                 padding: "10px 12px",
                 borderRadius: "10px",
@@ -579,6 +590,9 @@ type LocalBet = {
   entryPriceCents: number;
   amount: string;
   createdAt: number;
+  status: "open" | "closed";
+  closedAt?: number;
+  closedPriceCents?: number;
 };
 
 const categoryMap: Record<string, string> = {

@@ -16,3 +16,18 @@ export const CONTRACT_TERRITORIES: ContractTerritory[] = [
   { id: 8, svgId: "ZA" },
   { id: 9, svgId: "AU" },
 ];
+
+import worldSvg from "../assets/world.svg?raw";
+
+function extractSvgCodes(svg: string) {
+  const codes = new Set<string>();
+  const regex = /id="([A-Z]{2})"/g;
+  let match;
+  while ((match = regex.exec(svg)) !== null) {
+    codes.add(match[1]);
+  }
+  return codes;
+}
+
+export const SVG_TERRITORY_CODES = extractSvgCodes(worldSvg);
+export const SVG_TERRITORY_COUNT = SVG_TERRITORY_CODES.size;

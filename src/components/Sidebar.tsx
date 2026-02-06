@@ -1,4 +1,4 @@
-import { useAccount, useConnect } from "wagmi";
+import { useAccount, useConnect, useReadContract } from "wagmi";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Map,
@@ -7,20 +7,28 @@ import {
   BarChart3,
   Settings
 } from "lucide-react";
+import riskGameAbi from "../artifacts/contracts/RiskGame.sol/RiskGame.json";
+import { RISK_GAME_ADDRESS } from "../hooks/useContract";
 
 function Sidebar() {
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
   const injectedConnector = connectors.find((connector) => connector.id === "injected");
   const location = useLocation();
+  const { data: ownerData } = useReadContract({
+    address: RISK_GAME_ADDRESS,
+    abi: riskGameAbi.abi,
+    functionName: "owner",
+  });
+  const owner = typeof ownerData === "string" ? ownerData : null;
+  const isAdmin = !!address && !!owner && owner.toLowerCase() === address.toLowerCase();
 
   const navItems = [
-    { path: "/", label: "Map", icon: Map },
     { path: "/map-v2", label: "Map V2", icon: Map },
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/polymarket", label: "Polymarket", icon: TrendingUp },
     { path: "/stats", label: "Stats", icon: BarChart3 },
-    { path: "/admin", label: "Admin", icon: Settings },
+    ...(isAdmin ? [{ path: "/admin", label: "Admin", icon: Settings }] : []),
   ];
 
   return (
@@ -53,7 +61,7 @@ function Sidebar() {
             letterSpacing: "-0.5px",
           }}
         >
-          Territory Wars
+          PredictRisk
         </h1>
         <p
           style={{
@@ -63,7 +71,7 @@ function Sidebar() {
             letterSpacing: "0.5px",
           }}
         >
-          NFT Strategy Game
+          Strategy and prediction game
         </p>
       </div>
 
