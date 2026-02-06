@@ -240,7 +240,7 @@ export function useAttack() {
 
 
 export function useTerritoryOwner(territoryId: number) {
-  const { data, refetch } = useReadContract({
+  const { data = null, refetch } = useReadContract({
     address: TERRITORY_NFT_ADDRESS,
     abi: territoryNftAbi.abi,
     functionName: 'ownerOf',
