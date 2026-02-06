@@ -4,11 +4,17 @@ import { parseEther, formatEther } from 'viem';
 import riskGameAbi from '../artifacts/contracts/RiskGame.sol/RiskGame.json';
 import erc20Abi from '../artifacts/contracts/ArmyToken.sol/ArmyToken.json';
 import territoryNftAbi from '../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json';
+import localhostDeployments from '../deployments/localhost.json';
+import baseSepoliaDeployments from '../deployments/baseSepolia.json';
 
-// Replace with your deployed contract addresses
-export const RISK_GAME_ADDRESS = '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0' as const;
-export const ARMY_TOKEN_ADDRESS = '0x5FbDB2315678afecb367f032d93F642f64180aa3' as const;
-export const TERRITORY_NFT_ADDRESS = '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512' as const;
+const networkName = (import.meta.env.VITE_NETWORK || 'localhost').toLowerCase();
+const activeDeployments =
+  networkName === 'basesepolia' ? baseSepoliaDeployments : localhostDeployments;
+
+export const RISK_GAME_ADDRESS = activeDeployments.riskGame as `0x${string}`;
+export const ARMY_TOKEN_ADDRESS = activeDeployments.armyToken as `0x${string}`;
+export const TERRITORY_NFT_ADDRESS = activeDeployments.territoryNft as `0x${string}`;
+export const BET_ESCROW_ADDRESS = activeDeployments.betEscrow as `0x${string}`;
 // ==================== READ HOOKS ====================
 
 // Get armies stationed on a territory
@@ -20,9 +26,11 @@ export function useTerritoryArmies(territoryId: number) {
     args: [BigInt(territoryId)],
   });
 
+  const armiesValue = typeof data === 'bigint' ? data : 0n;
+
   return {
-    armies: data ? formatEther(data) : '0',
-    armiesRaw: data ?? BigInt(0),
+    armies: formatEther(armiesValue),
+    armiesRaw: armiesValue,
     isLoading,
     refetch,
   };
@@ -100,9 +108,11 @@ export function useArmyBalance(playerAddress?: `0x${string}`) {
     query: { enabled: !!playerAddress },
   });
 
+  const balanceValue = typeof data === 'bigint' ? data : 0n;
+
   return {
-    balance: data ? formatEther(data) : '0',
-    balanceRaw: data ?? BigInt(0),
+    balance: formatEther(balanceValue),
+    balanceRaw: balanceValue,
     isLoading,
     refetch,
   };
@@ -118,9 +128,31 @@ export function useArmyAllowance(playerAddress?: `0x${string}`) {
     query: { enabled: !!playerAddress },
   });
 
+  const allowanceValue = typeof data === 'bigint' ? data : 0n;
+
   return {
-    allowance: data ? formatEther(data) : '0',
-    allowanceRaw: data ?? BigInt(0),
+    allowance: formatEther(allowanceValue),
+    allowanceRaw: allowanceValue,
+    isLoading,
+    refetch,
+  };
+}
+
+// Get allowance for BetEscrow contract
+export function useArmyAllowanceForBets(playerAddress?: `0x${string}`) {
+  const { data, isLoading, refetch } = useReadContract({
+    address: ARMY_TOKEN_ADDRESS,
+    abi: erc20Abi.abi,
+    functionName: 'allowance',
+    args: playerAddress ? [playerAddress, BET_ESCROW_ADDRESS] : undefined,
+    query: { enabled: !!playerAddress },
+  });
+
+  const allowanceValue = typeof data === 'bigint' ? data : 0n;
+
+  return {
+    allowance: formatEther(allowanceValue),
+    allowanceRaw: allowanceValue,
     isLoading,
     refetch,
   };
@@ -164,6 +196,32 @@ export function useApproveArmyTokens() {
       abi: erc20Abi.abi,
       functionName: 'approve',
       args: [RISK_GAME_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+    });
+  };
+
+  return { approve, approveMax, isPending, isConfirming, isSuccess, error, hash };
+}
+
+// Approve army tokens for betting escrow
+export function useApproveArmyTokensForBets() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const approve = (amount: string) => {
+    writeContract({
+      address: ARMY_TOKEN_ADDRESS,
+      abi: erc20Abi.abi,
+      functionName: 'approve',
+      args: [BET_ESCROW_ADDRESS, parseEther(amount)],
+    });
+  };
+
+  const approveMax = () => {
+    writeContract({
+      address: ARMY_TOKEN_ADDRESS,
+      abi: erc20Abi.abi,
+      functionName: 'approve',
+      args: [BET_ESCROW_ADDRESS, BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
     });
   };
 
@@ -219,6 +277,23 @@ export function useClaimSpawnTerritory() {
   };
 
   return { claimSpawn, isPending, isConfirming, isSuccess, error, hash };
+}
+
+// Claim initial territory (player chooses)
+export function useClaimInitialTerritory() {
+  const { writeContract, data: hash, isPending, error } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+
+  const claimInitial = (territoryId: number) => {
+    writeContract({
+      address: RISK_GAME_ADDRESS,
+      abi: riskGameAbi.abi,
+      functionName: 'claimInitialTerritory',
+      args: [BigInt(territoryId)],
+    });
+  };
+
+  return { claimInitial, isPending, isConfirming, isSuccess, error, hash };
 }
 
 // Attack another territory

@@ -1,11 +1,13 @@
-import { useMemo, useRef, useState } from "react";
-import { useAccount } from "wagmi";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAccount, useReadContract, useReadContracts } from "wagmi";
 
 import ActionPanel from "../components/ActionPanel";
 import SvgRiskMap from "../components/SvgRiskMap";
+import territoryNftAbi from "../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json";
 import worldSvg from "../assets/world.svg?raw";
 import worldBordersCsv from "../assets/world-borders.csv?raw";
 import { CONTRACT_TERRITORIES } from "../data/mapV2";
+import { TERRITORY_NFT_ADDRESS, useClaimDailyArmies, useClaimInitialTerritory } from "../hooks/useContract";
 
 type CsvParseResult = {
   countries: { code: string; name: string; neighbors: string[] }[];
@@ -56,7 +58,7 @@ function parseWorldBordersCsv(csv: string, allowedCodes: Set<string>): CsvParseR
 }
 
 export default function MapV2() {
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   const [selectedTerritory, setSelectedTerritory] = useState<string | null>(null);
   const [targetTerritory, setTargetTerritory] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -64,10 +66,59 @@ export default function MapV2() {
   const isPanningRef = useRef(false);
   const panStartRef = useRef({ x: 0, y: 0 });
 
+  const { data: territoryBalance, refetch: refetchTerritoryBalance } = useReadContract({
+    address: TERRITORY_NFT_ADDRESS,
+    abi: territoryNftAbi.abi,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const territoryBalanceValue = typeof territoryBalance === "bigint" ? territoryBalance : 0n;
+  const hasTerritory = territoryBalanceValue > 0n;
+
+  const {
+    claim: claimDaily,
+    isPending: isClaimingDaily,
+    isSuccess: dailySuccess,
+  } = useClaimDailyArmies();
+  const {
+    claimInitial,
+    isPending: isClaimingInitial,
+    isSuccess: initialSuccess,
+  } = useClaimInitialTerritory();
+
   const { countries, neighborsByCode } = useMemo(
     () => parseWorldBordersCsv(worldBordersCsv, extractSvgCodes(worldSvg)),
     [],
   );
+
+  const territoryIds = useMemo(
+    () => Array.from({ length: countries.length }, (_, index) => index),
+    [countries.length],
+  );
+
+  const { data: existsList } = useReadContracts({
+    allowFailure: true,
+    contracts: territoryIds.map((id) => ({
+      address: TERRITORY_NFT_ADDRESS,
+      abi: territoryNftAbi.abi,
+      functionName: "exists",
+      args: [BigInt(id)],
+    })),
+    query: { enabled: territoryIds.length > 0 },
+  });
+
+  const claimedCodes = useMemo(() => {
+    const claimed = new Set<string>();
+    existsList?.forEach((entry, index) => {
+      if (entry?.status === "success" && entry.result === true) {
+        const code = countries[index]?.code;
+        if (code) claimed.add(code);
+      }
+    });
+    return claimed;
+  }, [existsList, countries]);
 
   const contractIdByCode = useMemo(() => {
     if (countries.length > CONTRACT_TERRITORIES.length) {
@@ -75,6 +126,19 @@ export default function MapV2() {
     }
     return new Map(CONTRACT_TERRITORIES.map((territory) => [territory.svgId, territory.id]));
   }, [countries]);
+
+  const selectedId = selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null;
+
+  const { data: existsData } = useReadContract({
+    address: TERRITORY_NFT_ADDRESS,
+    abi: territoryNftAbi.abi,
+    functionName: "exists",
+    args: selectedId !== null ? [BigInt(selectedId)] : undefined,
+    query: { enabled: selectedId !== null },
+  });
+
+  const isAlreadyMinted = typeof existsData === "boolean" ? existsData : false;
+
 
   const selectedNeighbors = useMemo(() => {
     if (selectedTerritory === null) return new Set<string>();
@@ -106,6 +170,12 @@ export default function MapV2() {
       setTargetTerritory(null);
     }
   };
+
+  useEffect(() => {
+    if (dailySuccess || initialSuccess) {
+      refetchTerritoryBalance();
+    }
+  }, [dailySuccess, initialSuccess, refetchTerritoryBalance]);
 
   const clampZoom = (value: number) => Math.min(6, Math.max(1, value));
 
@@ -156,6 +226,73 @@ export default function MapV2() {
             ? ` • Target: ${countries.find((t) => t.code === targetTerritory)?.name ?? "-"}`
             : ""}
         </div>
+      </div>
+
+      <div
+        style={{
+          padding: "12px 24px",
+          display: "flex",
+          alignItems: "center",
+          gap: "12px",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          background: "rgba(6, 10, 26, 0.7)",
+          color: "#cbd5f5",
+          fontSize: "13px",
+        }}
+      >
+        {!hasTerritory ? (
+          <>
+            <span>
+              Select a free territory, then claim your starter (100 armies).
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (selectedId === null) return;
+                claimInitial(selectedId);
+              }}
+              disabled={
+                selectedId === null ||
+                isAlreadyMinted ||
+                isClaimingInitial
+              }
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: "none",
+                background: "linear-gradient(135deg, #a855f7 0%, #9333ea 100%)",
+                color: "#fff",
+                cursor: "pointer",
+                opacity:
+                  selectedId === null || isAlreadyMinted || isClaimingInitial
+                    ? 0.6
+                    : 1,
+              }}
+            >
+              {isClaimingInitial ? "Claiming..." : "Claim Starter"}
+            </button>
+            {selectedId !== null && isAlreadyMinted && (
+              <span style={{ color: "#f87171" }}>Selected territory already claimed.</span>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={claimDaily}
+            disabled={isClaimingDaily}
+            style={{
+              padding: "6px 12px",
+              borderRadius: "8px",
+              border: "none",
+              background: "linear-gradient(135deg, #4caf50, #2e7d32)",
+              color: "#fff",
+              cursor: "pointer",
+              opacity: isClaimingDaily ? 0.6 : 1,
+            }}
+          >
+            {isClaimingDaily ? "Claiming..." : "Claim Daily Armies"}
+          </button>
+        )}
       </div>
 
       <div style={{ flex: 1, padding: "20px" }}>
@@ -218,6 +355,7 @@ export default function MapV2() {
               selectedTerritory={selectedTerritory}
               targetTerritory={targetTerritory}
               neighborIds={selectedNeighbors}
+              claimedCodes={claimedCodes}
               onSelect={handleTerritoryClick}
             />
           </div>

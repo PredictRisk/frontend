@@ -12,6 +12,7 @@ interface SvgRiskMapProps {
   selectedTerritory: string | null;
   targetTerritory: string | null;
   neighborIds: Set<string>;
+  claimedCodes: Set<string>;
   onSelect: (code: string) => void;
 }
 
@@ -19,6 +20,7 @@ const WORLD_VIEWBOX = "0 0 1009.6727 665.96301";
 const COLOR_DEFAULT = "#f8fafc";
 const COLOR_SELECTED = "#fbbf24";
 const COLOR_NEIGHBOR = "#ef4444";
+const COLOR_CLAIMED = "#9ca3af";
 const COLOR_BORDER = "rgba(10, 15, 30, 0.9)";
 const COLOR_BORDER_FAINT = "rgba(10, 15, 30, 0.45)";
 const COLOR_BASE = "rgba(255,255,255,0.08)";
@@ -29,6 +31,7 @@ function SvgRiskMap({
   selectedTerritory,
   targetTerritory,
   neighborIds,
+  claimedCodes,
   onSelect,
 }: SvgRiskMapProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -68,7 +71,9 @@ function SvgRiskMap({
         ? COLOR_SELECTED
         : isNeighbor || isTarget
           ? COLOR_NEIGHBOR
-          : COLOR_DEFAULT;
+          : claimedCodes.has(territory.code)
+            ? COLOR_CLAIMED
+            : COLOR_DEFAULT;
 
       const stroke = isSelected || isNeighbor || isTarget ? COLOR_BORDER : COLOR_BORDER_FAINT;
 
@@ -86,7 +91,7 @@ function SvgRiskMap({
       path.setAttribute("data-territory-code", territory.code);
     });
 
-  }, [territories, selectedTerritory, targetTerritory, neighborIds]);
+  }, [territories, selectedTerritory, targetTerritory, neighborIds, claimedCodes]);
 
   return (
     <div

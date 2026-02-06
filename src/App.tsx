@@ -6,6 +6,8 @@ import Sidebar from "./components/Sidebar";
 import MapView from "./pages/MapView";
 import Polymarket from "./pages/Polymarket";
 import MapV2 from "./pages/MapV2";
+import Dashboard from "./pages/Dashboard";
+import Stats from "./pages/Stats";
 
 function App() {
   useEffect(() => {
@@ -29,9 +31,9 @@ function App() {
           <Routes>
             <Route path="/" element={<MapView />} />
             <Route path="/map-v2" element={<MapV2 />} />
-            <Route path="/dashboard" element={<RiskGame />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/polymarket" element={<Polymarket />} />
-            <Route path="/stats" element={<RiskGame />} />
+            <Route path="/stats" element={<Stats />} />
             <Route path="/admin" element={<RiskGame />} />
           </Routes>
         </main>

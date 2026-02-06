@@ -25,11 +25,38 @@ const localhost1337 = defineChain({
   testnet: true,
 });
 
+const baseSepolia = defineChain({
+  id: 84532,
+  name: "Base Sepolia",
+  nativeCurrency: {
+    name: "Ether",
+    symbol: "ETH",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: [import.meta.env.VITE_BASE_SEPOLIA_RPC_URL || "https://sepolia.base.org"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Base Sepolia",
+      url: "https://sepolia.basescan.org",
+    },
+  },
+  testnet: true,
+});
+
+const activeChain =
+  (import.meta.env.VITE_NETWORK || "localhost").toLowerCase() === "basesepolia"
+    ? baseSepolia
+    : localhost1337;
+
 export const config = createConfig({
-  chains: [localhost1337],
+  chains: [activeChain],
   connectors: [injected(), miniAppConnector()],
   transports: {
-    [localhost1337.id]: http(),
+    [activeChain.id]: http(),
   },
 });
 
