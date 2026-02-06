@@ -11,10 +11,12 @@ import {
 function Sidebar() {
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
+  const injectedConnector = connectors.find((connector) => connector.id === "injected");
   const location = useLocation();
 
   const navItems = [
     { path: "/", label: "Map", icon: Map },
+    { path: "/map-v2", label: "Map V2", icon: Map },
     { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { path: "/polymarket", label: "Polymarket", icon: TrendingUp },
     { path: "/stats", label: "Stats", icon: BarChart3 },
@@ -183,7 +185,7 @@ function Sidebar() {
         ) : (
           <button
             type="button"
-            onClick={() => connect({ connector: connectors[1] })}
+            onClick={() => connect({ connector: injectedConnector ?? connectors[0] })}
             style={{
               width: "100%",
               padding: "12px",

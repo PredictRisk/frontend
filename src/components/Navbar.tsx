@@ -5,6 +5,7 @@ import { useArmyBalance } from "../hooks/useContract";
 function Navbar({ totalArmies }: { totalArmies: string }) {
   const { isConnected, address } = useAccount();
   const { connect, connectors } = useConnect();
+  const injectedConnector = connectors.find((connector) => connector.id === "injected");
   const { balance } = useArmyBalance(address);
 
   return (
@@ -62,7 +63,7 @@ function Navbar({ totalArmies }: { totalArmies: string }) {
         ) : (
           <button
             type="button"
-            onClick={() => connect({ connector: connectors[1] })}
+            onClick={() => connect({ connector: injectedConnector ?? connectors[0] })}
             style={{
               padding: '10px 20px',
               background: 'linear-gradient(145deg, #d4af37, #aa8b2d)',
