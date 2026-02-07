@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { parseEther } from "viem";
-import { BET_ESCROW_ADDRESS, useApproveArmyTokensForBets, useArmyAllowanceForBets } from "../hooks/useContract";
+import { BET_ESCROW_ADDRESS, useApproveArmyTokensForBets, useArmyAllowanceForBets, useArmyBalance } from "../hooks/useContract";
 
 const betEscrowAbi = [
   {
@@ -49,11 +49,14 @@ function Polymarket() {
 
   const { address } = useAccount();
   const { allowanceRaw } = useArmyAllowanceForBets(address);
+  const { balanceRaw, balance } = useArmyBalance(address);
   const { approveMax, isPending: isApprovePending } = useApproveArmyTokensForBets();
   const { writeContract, data: betHash, isPending: isBetPending } = useWriteContract();
   const { isLoading: isBetConfirming, isSuccess: isBetSuccess } =
     useWaitForTransactionReceipt({ hash: betHash });
   const isBettingConfigured = !/^0x0{40}$/.test(BET_ESCROW_ADDRESS);
+  const amountWei = amount ? parseSafeEther(amount) : 0n;
+  const needsApproval = amountWei > 0n && allowanceRaw < amountWei;
 
   const selectedOutcome = useMemo(() => {
     if (!market || selectedOutcomeIndex === null) return null;
@@ -235,6 +238,11 @@ function Polymarket() {
       return;
     }
 
+    if (balanceRaw < amountWei) {
+      setBetError("Not enough ARMY in your wallet.");
+      return;
+    }
+
     if (allowanceRaw < amountWei) {
       setBetError("Approve ArmyToken for betting first.");
       return;
@@ -274,6 +282,7 @@ function Polymarket() {
 
       setBetStatus("Submitting transaction...");
       const betId = saveLocalBet({
+        player: address,
         marketUrl: market.marketUrl,
         marketTitle: market.title,
         outcomeIndex: selectedOutcomeIndex,
@@ -485,26 +494,34 @@ function Polymarket() {
                 </button>
               ))}
             </div>
+            <div style={{ fontSize: "11px", color: "#94a3b8" }}>
+              Wallet balance: {Number.parseFloat(balance).toFixed(2)} ARMY
+            </div>
             {!isBettingConfigured && (
               <div style={{ color: "#fca5a5", fontSize: "12px" }}>
                 Betting contract not configured for this network.
               </div>
             )}
-            {amount && allowanceRaw < parseSafeEther(amount) && isBettingConfigured && (
+            {isBettingConfigured && (
               <button
                 type="button"
                 onClick={() => approveMax()}
-                disabled={isApprovePending}
+                disabled={isApprovePending || !needsApproval}
                 style={{
                   padding: "8px 10px",
                   borderRadius: "8px",
                   border: "1px solid rgba(255,255,255,0.16)",
-                  background: "rgba(255,255,255,0.08)",
-                  color: "#e2e8f0",
-                  cursor: "pointer",
+                  background: needsApproval ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.04)",
+                  color: needsApproval ? "#e2e8f0" : "#94a3b8",
+                  cursor: needsApproval ? "pointer" : "not-allowed",
+                  opacity: isApprovePending ? 0.7 : 1,
                 }}
               >
-                {isApprovePending ? "Approving..." : "Approve ArmyToken"}
+                {isApprovePending
+                  ? "Approving..."
+                  : needsApproval
+                    ? "Approve ArmyToken"
+                    : "Allowance OK"}
               </button>
             )}
             <button
@@ -583,6 +600,7 @@ type MarketOutcome = {
 
 type LocalBet = {
   id: string;
+  player: `0x${string}`;
   marketUrl: string;
   marketTitle: string;
   outcomeIndex: number;

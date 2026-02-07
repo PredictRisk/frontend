@@ -64,8 +64,13 @@ export default function MapV2() {
   const [targetTerritory, setTargetTerritory] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [suppressClick, setSuppressClick] = useState(false);
   const isPanningRef = useRef(false);
+  const panPointerIdRef = useRef<number | null>(null);
   const panStartRef = useRef({ x: 0, y: 0 });
+  const panOriginRef = useRef({ x: 0, y: 0 });
+  const movedRef = useRef(false);
 
   const { data: territoryBalance, refetch: refetchTerritoryBalance } = useReadContract({
     address: TERRITORY_NFT_ADDRESS,
@@ -149,6 +154,17 @@ export default function MapV2() {
     query: { enabled: mintedIds.length > 0 },
   });
 
+  const ownerById = useMemo(() => {
+    const map = new Map<number, `0x${string}`>();
+    mintedIds.forEach((id, index) => {
+      const ownerEntry = ownerResults?.[index];
+      if (ownerEntry?.status !== "success") return;
+      const owner = ownerEntry.result as `0x${string}`;
+      map.set(id, owner);
+    });
+    return map;
+  }, [mintedIds, ownerResults]);
+
   const ownedCodes = useMemo(() => {
     const owned = new Set<string>();
     if (!address) return owned;
@@ -157,25 +173,25 @@ export default function MapV2() {
       const id = contractIdByCode.get(country.code);
       if (id !== undefined) idToCode.set(id, country.code);
     });
-    mintedIds.forEach((id, index) => {
-      const ownerEntry = ownerResults?.[index];
-      if (ownerEntry?.status !== "success") return;
-      const owner = ownerEntry.result as `0x${string}`;
+    mintedIds.forEach((id) => {
+      const owner = ownerById.get(id);
+      if (!owner) return;
       if (owner.toLowerCase() !== address.toLowerCase()) return;
       const code = idToCode.get(id);
       if (code) owned.add(code);
     });
     return owned;
-  }, [address, countries, contractIdByCode, mintedIds, ownerResults]);
+  }, [address, countries, contractIdByCode, mintedIds, ownerById]);
 
-  const selectedId = selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null;
+
+  const selectedTerritoryId = selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null;
 
   const { data: existsData } = useReadContract({
     address: TERRITORY_NFT_ADDRESS,
     abi: territoryNftAbi.abi as unknown as Abi,
     functionName: "exists",
-    args: selectedId !== null ? [BigInt(selectedId)] : undefined,
-    query: { enabled: selectedId !== null },
+    args: selectedTerritoryId !== null ? [BigInt(selectedTerritoryId)] : undefined,
+    query: { enabled: selectedTerritoryId !== null },
   });
 
   const isAlreadyMinted = typeof existsData === "boolean" ? existsData : false;
@@ -190,6 +206,39 @@ export default function MapV2() {
     if (!selectedTerritory || !address) return false;
     return ownedCodes.has(selectedTerritory);
   }, [selectedTerritory, address, ownedCodes]);
+
+  const selectedOwnerAddress = useMemo(() => {
+    if (selectedTerritoryId === null) return null;
+    return ownerById.get(selectedTerritoryId) ?? null;
+  }, [selectedTerritoryId, ownerById]);
+
+  const highlightedCodes = useMemo(() => {
+    const set = new Set<string>();
+    if (!selectedOwnerAddress || (address && selectedOwnerAddress.toLowerCase() === address.toLowerCase())) {
+      return set;
+    }
+    const idToCode = new Map<number, string>();
+    countries.forEach((country) => {
+      const id = contractIdByCode.get(country.code);
+      if (id !== undefined) idToCode.set(id, country.code);
+    });
+    ownerById.forEach((owner, id) => {
+      if (owner.toLowerCase() !== selectedOwnerAddress.toLowerCase()) return;
+      const code = idToCode.get(id);
+      if (code) set.add(code);
+    });
+    return set;
+  }, [selectedOwnerAddress, address, countries, contractIdByCode, ownerById]);
+
+  const selectedTerritoryName = useMemo(() => {
+    if (!selectedTerritory) return null;
+    return countries.find((country) => country.code === selectedTerritory)?.name ?? null;
+  }, [selectedTerritory, countries]);
+
+  const targetTerritoryName = useMemo(() => {
+    if (!targetTerritory) return null;
+    return countries.find((country) => country.code === targetTerritory)?.name ?? null;
+  }, [targetTerritory, countries]);
 
   const selectedNeighborList = useMemo(() => {
     if (!selectedTerritory) return [];
@@ -333,11 +382,11 @@ export default function MapV2() {
             <button
               type="button"
               onClick={() => {
-                if (selectedId === null) return;
-                claimInitial(selectedId);
+                if (selectedTerritoryId === null) return;
+                claimInitial(selectedTerritoryId);
               }}
               disabled={
-                selectedId === null ||
+                selectedTerritoryId === null ||
                 isAlreadyMinted ||
                 isClaimingInitial
               }
@@ -349,14 +398,14 @@ export default function MapV2() {
                 color: "#fff",
                 cursor: "pointer",
                 opacity:
-                  selectedId === null || isAlreadyMinted || isClaimingInitial
+                  selectedTerritoryId === null || isAlreadyMinted || isClaimingInitial
                     ? 0.6
                     : 1,
               }}
             >
               {isClaimingInitial ? "Claiming..." : "Claim Starter"}
             </button>
-            {selectedId !== null && isAlreadyMinted && (
+            {selectedTerritoryId !== null && isAlreadyMinted && (
               <span style={{ color: "#f87171" }}>Selected territory already claimed.</span>
             )}
           </>
@@ -399,16 +448,35 @@ export default function MapV2() {
               setZoom((prev) => clampZoom(prev + delta));
             }}
             onPointerDown={(event) => {
-              const shouldPan = event.button === 1 || event.shiftKey;
-              if (!shouldPan) return;
-              isPanningRef.current = true;
+              if (event.button !== 0 && event.button !== 1) return;
+              isPanningRef.current = false;
+              setIsPanning(false);
+              setSuppressClick(false);
+              movedRef.current = false;
+              panPointerIdRef.current = event.pointerId;
+              panOriginRef.current = { x: event.clientX, y: event.clientY };
               panStartRef.current = {
                 x: event.clientX - pan.x,
                 y: event.clientY - pan.y,
               };
-              (event.currentTarget as HTMLDivElement).setPointerCapture(event.pointerId);
             }}
             onPointerMove={(event) => {
+              if (panPointerIdRef.current !== event.pointerId) return;
+              const dx = Math.abs(event.clientX - panOriginRef.current.x);
+              const dy = Math.abs(event.clientY - panOriginRef.current.y);
+              if (dx > 6 || dy > 6) {
+                if (!isPanningRef.current) {
+                  isPanningRef.current = true;
+                  setIsPanning(true);
+                  movedRef.current = true;
+                  setSuppressClick(true);
+                  if (panPointerIdRef.current !== null) {
+                    (event.currentTarget as HTMLDivElement).setPointerCapture(
+                      panPointerIdRef.current,
+                    );
+                  }
+                }
+              }
               if (!isPanningRef.current) return;
               setPan({
                 x: event.clientX - panStartRef.current.x,
@@ -416,11 +484,21 @@ export default function MapV2() {
               });
             }}
             onPointerUp={(event) => {
-              isPanningRef.current = false;
-              (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
+              if (panPointerIdRef.current !== event.pointerId) return;
+              if (isPanningRef.current) {
+                isPanningRef.current = false;
+                setIsPanning(false);
+                (event.currentTarget as HTMLDivElement).releasePointerCapture(event.pointerId);
+                setSuppressClick(true);
+                setTimeout(() => setSuppressClick(false), 0);
+              }
+              movedRef.current = false;
+              panPointerIdRef.current = null;
             }}
             onPointerLeave={() => {
               isPanningRef.current = false;
+              setIsPanning(false);
+              panPointerIdRef.current = null;
             }}
             style={{
               width: "100%",
@@ -428,7 +506,7 @@ export default function MapV2() {
               transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
               transformOrigin: "center center",
               transition: "transform 0.1s ease",
-              cursor: isPanningRef.current ? "grabbing" : "grab",
+              cursor: isPanning ? "grabbing" : "grab",
             }}
           >
             <SvgRiskMap
@@ -442,7 +520,9 @@ export default function MapV2() {
               neighborIds={selectedNeighbors}
               claimedCodes={claimedCodes}
               ownedCodes={ownedCodes}
+              highlightCodes={highlightedCodes}
               isSelectedOwned={selectedOwned}
+              suppressClick={suppressClick}
               onSelect={handleTerritoryClick}
             />
           </div>
@@ -514,13 +594,14 @@ export default function MapV2() {
       </div>
 
       <ActionPanel
-        selectedTerritory={
-          selectedTerritory ? contractIdByCode.get(selectedTerritory) ?? null : null
-        }
+        selectedTerritory={selectedTerritoryId}
         targetTerritory={
           targetTerritory ? contractIdByCode.get(targetTerritory) ?? null : null
         }
         selectedTerritoryExists={isAlreadyMinted}
+        selectedTerritoryName={selectedTerritoryName}
+        targetTerritoryName={targetTerritoryName}
+        selectedOwnerAddress={selectedOwnerAddress}
         attackableTargets={attackableTargets}
         neighborNames={selectedNeighborList}
         onSelectTarget={(id) => {
@@ -540,6 +621,10 @@ export default function MapV2() {
           refetchTerritoryBalance();
           refetchExistsList();
           refetchOwners();
+        }}
+        onOpenProfile={(owner) => {
+          const profileUrl = `#/profile/${owner}`;
+          window.open(profileUrl, "_blank", "noopener,noreferrer");
         }}
       />
     </div>

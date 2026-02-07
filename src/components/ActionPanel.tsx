@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
-import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useEffect, useMemo, useState } from 'react';
+import { useAccount, useReadContract, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 import { parseEther } from 'viem';
 
 import riskGameAbi from '../artifacts/contracts/RiskGame.sol/RiskGame.json';
 import erc20Abi from '../artifacts/contracts/ArmyToken.sol/ArmyToken.json';
-import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, useArmyBalance, useArmyAllowance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
+import territoryNftAbi from '../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json';
+import { ARMY_TOKEN_ADDRESS, RISK_GAME_ADDRESS, TERRITORY_NFT_ADDRESS, useArmyBalance, useArmyAllowance, useTerritoryArmies, useTerritoryOwner, useSpawnProtection } from '../hooks/useContract';
 
 interface Territory {
   id: number;
@@ -25,19 +26,28 @@ const TERRITORIES: Territory[] = [
   { id: 9, name: 'Darkhollow', neighbors: [6, 7, 8] },
 ];
 
+const MIN_ARMIES_RAW = 10n * 10n ** 18n;
+
 function ActionPanel({
   selectedTerritory,
   targetTerritory,
   selectedTerritoryExists,
+  selectedTerritoryName,
+  targetTerritoryName,
+  selectedOwnerAddress,
   attackableTargets,
   neighborNames,
   onSelectTarget,
   onActionComplete,
+  onOpenProfile,
   onClose,
 }: {
   selectedTerritory: number | null;
   targetTerritory: number | null;
   selectedTerritoryExists?: boolean;
+  selectedTerritoryName?: string | null;
+  targetTerritoryName?: string | null;
+  selectedOwnerAddress?: `0x${string}` | null;
   attackableTargets?: Array<{
     id: number;
     name: string;
@@ -46,6 +56,7 @@ function ActionPanel({
   neighborNames?: string[];
   onSelectTarget?: (id: number) => void;
   onActionComplete?: () => void;
+  onOpenProfile?: (owner: `0x${string}`) => void;
   onClose: () => void;
 }) {
   const { address } = useAccount();
@@ -54,10 +65,19 @@ function ActionPanel({
 
   const { balance, refetch: refetchBalance } = useArmyBalance(address);
   const { allowanceRaw, refetch: refetchAllowance } = useArmyAllowance(address);
-  const { armies: selectedArmies, refetch: refetchSelected } = useTerritoryArmies(selectedTerritory ?? 0);
-  const { armies: targetArmies, refetch: refetchTarget } = useTerritoryArmies(targetTerritory ?? 0);
+  const { armies: selectedArmies, armiesRaw: selectedArmiesRaw, refetch: refetchSelected } =
+    useTerritoryArmies(selectedTerritory ?? 0);
+  const { armies: targetArmies, armiesRaw: targetArmiesRaw, refetch: refetchTarget } =
+    useTerritoryArmies(targetTerritory ?? 0);
   const { owner: selectedOwner } = useTerritoryOwner(selectedTerritory ?? 0);
   const { isProtected } = useSpawnProtection(targetTerritory ?? 0);
+  const { data: targetExists } = useReadContract({
+    address: TERRITORY_NFT_ADDRESS,
+    abi: territoryNftAbi.abi,
+    functionName: 'exists',
+    args: targetTerritory !== null ? [BigInt(targetTerritory)] : undefined,
+    query: { enabled: targetTerritory !== null },
+  });
 
   const isYourTerritory = selectedOwner?.toLowerCase() === address?.toLowerCase();
 
@@ -94,6 +114,41 @@ function ActionPanel({
   ]);
 
   const needsApproval = action === 'station' && parseEther(amount || '0') > allowanceRaw;
+  const attackAmountRaw = useMemo(() => parseEther(amount || '0'), [amount]);
+  const isTargetMinted = typeof targetExists === 'boolean' ? targetExists : false;
+  const attackLoss = useMemo(() => {
+    if (!isTargetMinted) return 0n;
+    return (targetArmiesRaw * 14n) / 10n;
+  }, [isTargetMinted, targetArmiesRaw]);
+
+  const attackErrors = useMemo(() => {
+    if (action !== 'attack') return [];
+    const errors: string[] = [];
+    if (targetTerritory === null) errors.push('Select a target territory.');
+    if (isProtected) errors.push('Target is protected.');
+    if (attackAmountRaw < MIN_ARMIES_RAW) errors.push('Attack with at least 10 armies.');
+    if (selectedArmiesRaw < attackAmountRaw + MIN_ARMIES_RAW) {
+      errors.push('Leave at least 10 armies on your territory.');
+    }
+    if (isTargetMinted) {
+      if (attackAmountRaw * 10n < targetArmiesRaw * 27n) {
+        errors.push('Need 2.7x armies vs defender.');
+      }
+      if (attackAmountRaw < attackLoss + MIN_ARMIES_RAW) {
+        errors.push('Attack too small to leave 10 on conquered territory.');
+      }
+    }
+    return errors;
+  }, [
+    action,
+    attackAmountRaw,
+    selectedArmiesRaw,
+    targetTerritory,
+    isProtected,
+    isTargetMinted,
+    targetArmiesRaw,
+    attackLoss,
+  ]);
 
   const handleApprove = () => {
     writeApprove({
@@ -126,12 +181,9 @@ function ActionPanel({
 
   if (selectedTerritory === null) return null;
 
-  const getTerritoryName = (id: number | null) => {
-    if (id === null) return "Unknown";
-    return TERRITORIES[id]?.name ?? `Territory ${id}`;
-  };
-
-  const territoryName = getTerritoryName(selectedTerritory);
+  const territoryName =
+    selectedTerritoryName ??
+    (selectedTerritory !== null ? TERRITORIES[selectedTerritory]?.name ?? `Territory ${selectedTerritory}` : "Unknown");
 
   return (
     <div style={{
@@ -237,7 +289,7 @@ function ActionPanel({
 
           {action === 'attack' && targetTerritory !== null && (
             <div style={{ marginBottom: '10px', fontSize: '14px', color: '#888' }}>
-              Target: {getTerritoryName(targetTerritory)} ({targetArmies} armies)
+              Target: {targetTerritoryName ?? TERRITORIES[targetTerritory]?.name ?? `Territory ${targetTerritory}`} ({targetArmies} armies)
               {isProtected && <span style={{ color: '#2196f3' }}> 🛡️ Protected</span>}
             </div>
           )}
@@ -282,7 +334,7 @@ function ActionPanel({
                 disabled={
                   isStationing || isAttacking ||
                   !amount ||
-                  (action === 'attack' && (targetTerritory === null || isProtected))
+                  (action === 'attack' && attackErrors.length > 0)
                 }
                 style={{
                   padding: '10px 20px',
@@ -302,6 +354,12 @@ function ActionPanel({
             )}
           </div>
 
+          {action === 'attack' && attackErrors.length > 0 && (
+            <div style={{ marginTop: '10px', fontSize: '12px', color: '#ef5350' }}>
+              {attackErrors[0]}
+            </div>
+          )}
+
           <div style={{ marginTop: '10px', fontSize: '12px', color: '#888' }}>
             Your balance: {parseFloat(balance).toFixed(2)} Army Tokens
           </div>
@@ -311,6 +369,26 @@ function ActionPanel({
           {selectedTerritoryExists
             ? 'This territory belongs to someone else.'
             : 'Unclaimed territory. Claim it from the top bar if you have no territories yet.'}
+          {selectedOwnerAddress && selectedTerritoryExists && (
+            <div style={{ marginTop: '10px' }}>
+              <button
+                type="button"
+                onClick={() => onOpenProfile?.(selectedOwnerAddress)}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  background: 'rgba(255,255,255,0.08)',
+                  color: '#e2e8f0',
+                  cursor: 'pointer',
+                  fontFamily: '"Cinzel", serif',
+                  fontSize: '12px',
+                }}
+              >
+                Open player profile
+              </button>
+            </div>
+          )}
           {neighborNames && neighborNames.length > 0 && (
             <div style={{ marginTop: '10px', fontSize: '12px', color: '#9aa0b8' }}>
               Neighbors: {neighborNames.join(', ')}

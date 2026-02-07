@@ -14,18 +14,22 @@ interface SvgRiskMapProps {
   neighborIds: Set<string>;
   claimedCodes: Set<string>;
   ownedCodes: Set<string>;
+  highlightCodes: Set<string>;
   isSelectedOwned: boolean;
+  suppressClick: boolean;
   onSelect: (code: string) => void;
 }
 
 const WORLD_VIEWBOX = "0 0 1009.6727 665.96301";
 const COLOR_DEFAULT = "#f8fafc";
-const COLOR_SELECTED = "#fbbf24";
+const COLOR_SELECTED = "#ef4444";
 const COLOR_NEIGHBOR = "#ef4444";
 const COLOR_CLAIMED = "#9ca3af";
 const COLOR_OWNED = "#ef4444";
+const COLOR_OWNED_FAINT = "#f87171";
 const COLOR_NEUTRAL_SELECTED = "#fbbf24";
 const COLOR_NEUTRAL_NEIGHBOR = "#fde68a";
+const COLOR_HIGHLIGHT = "#60a5fa";
 const COLOR_BORDER = "rgba(10, 15, 30, 0.9)";
 const COLOR_BORDER_FAINT = "rgba(10, 15, 30, 0.45)";
 const COLOR_BASE = "rgba(255,255,255,0.08)";
@@ -38,7 +42,9 @@ function SvgRiskMap({
   neighborIds,
   claimedCodes,
   ownedCodes,
+  highlightCodes,
   isSelectedOwned,
+  suppressClick,
   onSelect,
 }: SvgRiskMapProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -73,23 +79,31 @@ function SvgRiskMap({
       const isSelected = selectedTerritory === territory.code;
       const isNeighbor = neighborIds.has(territory.code);
       const isTarget = targetTerritory === territory.code;
+      const isHighlighted = highlightCodes.has(territory.code);
 
-      const neighborFill = isSelectedOwned ? COLOR_NEIGHBOR : COLOR_NEUTRAL_NEIGHBOR;
+      const neighborFill = isSelectedOwned ? COLOR_NEUTRAL_NEIGHBOR : COLOR_NEUTRAL_NEIGHBOR;
       const selectedFill = isSelectedOwned ? COLOR_SELECTED : COLOR_NEUTRAL_SELECTED;
       const fill = isSelected
         ? selectedFill
-        : isNeighbor || isTarget
-          ? neighborFill
-          : ownedCodes.has(territory.code)
-            ? COLOR_OWNED
+        : ownedCodes.has(territory.code)
+          ? isSelectedOwned && (isNeighbor || isTarget)
+            ? COLOR_OWNED_FAINT
+            : COLOR_OWNED
+          : isNeighbor || isTarget
+            ? neighborFill
             : claimedCodes.has(territory.code)
               ? COLOR_CLAIMED
               : COLOR_DEFAULT;
 
-      const stroke = isSelected || isNeighbor || isTarget ? COLOR_BORDER : COLOR_BORDER_FAINT;
+      let stroke = isSelected || isNeighbor || isTarget ? COLOR_BORDER : COLOR_BORDER_FAINT;
 
-      const strokeWidth = isSelected || isNeighbor || isTarget ? 1.1 : 0.5;
+      let strokeWidth = isSelected || isNeighbor || isTarget ? 1.1 : 0.5;
       const opacity = selectedTerritory !== null && !isSelected && !isNeighbor && !isTarget ? 0.45 : 1;
+
+      if (isHighlighted && !isSelected && !isNeighbor && !isTarget) {
+        stroke = COLOR_HIGHLIGHT;
+        strokeWidth = 1.2;
+      }
 
       path.style.fill = fill;
       path.style.stroke = stroke;
@@ -116,6 +130,7 @@ function SvgRiskMap({
     <div
       ref={wrapperRef}
       onClick={(event) => {
+        if (suppressClick) return;
         const target = event.target as SVGPathElement | null;
         if (!target) return;
         const territoryCode = target.getAttribute("data-territory-code");

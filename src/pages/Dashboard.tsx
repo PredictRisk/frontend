@@ -11,21 +11,59 @@ import {
 import { SVG_TERRITORY_COUNT } from "../data/mapV2";
 import territoryNftAbi from "../artifacts/contracts/TerritoryNFT.sol/TerritoryNFT.json";
 import riskGameAbi from "../artifacts/contracts/RiskGame.sol/RiskGame.json";
+import worldSvg from "../assets/world.svg?raw";
+import worldBordersCsv from "../assets/world-borders.csv?raw";
 
 const LOCAL_BETS_KEY = "shelly.bets";
-const TERRITORIES = [
-  { id: 0, name: "Northern Highlands", neighbors: [1, 3, 4] },
-  { id: 1, name: "Eastern Plains", neighbors: [0, 2, 4] },
-  { id: 2, name: "Southern Marshes", neighbors: [1, 4, 5] },
-  { id: 3, name: "Western Mountains", neighbors: [0, 4, 6] },
-  { id: 4, name: "Central Valley", neighbors: [0, 1, 2, 3, 5, 6, 7] },
-  { id: 5, name: "Coastal Shores", neighbors: [2, 4, 7, 8] },
-  { id: 6, name: "Frozen Tundra", neighbors: [3, 4, 7, 9] },
-  { id: 7, name: "Sunreach", neighbors: [4, 5, 6, 8, 9] },
-  { id: 8, name: "Jungle Depths", neighbors: [5, 7, 9] },
-  { id: 9, name: "Volcanic Ridge", neighbors: [6, 7, 8] },
-];
 const MAX_TERRITORY_SCAN = SVG_TERRITORY_COUNT;
+
+type CsvParseResult = {
+  countries: { code: string; name: string; neighbors: string[] }[];
+  neighborsByCode: Map<string, Set<string>>;
+  svgCodes: Set<string>;
+};
+
+function extractSvgCodes(svg: string) {
+  const codes = new Set<string>();
+  const regex = /id="([A-Z]{2})"/g;
+  let match;
+  while ((match = regex.exec(svg)) !== null) {
+    codes.add(match[1]);
+  }
+  return codes;
+}
+
+function parseWorldBordersCsv(csv: string, allowedCodes: Set<string>): CsvParseResult {
+  const lines = csv.trim().split(/\r?\n/);
+  const neighborsByCode = new Map<string, Set<string>>();
+  const namesByCode = new Map<string, string>();
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    const match = line.match(/^"([^"]*)","([^"]*)","([^"]*)","([^"]*)"$/);
+    if (!match) continue;
+    const [, code, name, borderCode, borderName] = match;
+    if (code && allowedCodes.has(code)) namesByCode.set(code, name);
+    if (borderCode && allowedCodes.has(borderCode)) namesByCode.set(borderCode, borderName);
+    if (!borderCode) continue;
+    if (!allowedCodes.has(code) || !allowedCodes.has(borderCode)) continue;
+
+    if (!neighborsByCode.has(code)) neighborsByCode.set(code, new Set<string>());
+    if (!neighborsByCode.has(borderCode)) neighborsByCode.set(borderCode, new Set<string>());
+    neighborsByCode.get(code)?.add(borderCode);
+    neighborsByCode.get(borderCode)?.add(code);
+  }
+
+  const countries = Array.from(namesByCode.entries())
+    .map(([code, name]) => ({
+      code,
+      name,
+      neighbors: Array.from(neighborsByCode.get(code) ?? new Set<string>()),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return { countries, neighborsByCode, svgCodes: allowedCodes };
+}
 const betEscrowAbi = [
   {
     type: "function",
@@ -51,6 +89,7 @@ const betEscrowAbi = [
 
 type LocalBet = {
   id: string;
+  player?: `0x${string}`;
   marketUrl: string;
   marketTitle: string;
   outcomeIndex: number;
@@ -68,6 +107,11 @@ export default function Dashboard() {
   const { balance } = useArmyBalance(address);
   const [bets, setBets] = useState<LocalBet[]>([]);
   const [marketSnapshots, setMarketSnapshots] = useState<Record<string, MarketSnapshot>>({});
+
+  const { countries, neighborsByCode } = useMemo(
+    () => parseWorldBordersCsv(worldBordersCsv, extractSvgCodes(worldSvg)),
+    [],
+  );
 
   const territoryIds = useMemo(
     () => Array.from({ length: MAX_TERRITORY_SCAN }, (_, index) => index),
@@ -122,11 +166,12 @@ export default function Dashboard() {
           armiesEntry?.status === "success" && typeof armiesEntry.result === "bigint"
             ? armiesEntry.result
             : 0n;
-        const base = TERRITORIES.find((t) => t.id === id);
+        const base = countries[id];
+        const neighborCount = base ? neighborsByCode.get(base.code)?.size ?? 0 : 0;
         return {
           id,
           name: base?.name ?? `Territory ${id}`,
-          neighbors: base?.neighbors ?? [],
+          neighbors: neighborCount,
           armies: formatEther(armiesRaw),
           owner,
         };
@@ -134,11 +179,11 @@ export default function Dashboard() {
       .filter(Boolean) as Array<{
       id: number;
       name: string;
-      neighbors: number[];
+      neighbors: number;
       armies: string;
       owner: `0x${string}`;
     }>;
-  }, [address, territoryIds, ownerResults, armiesResults]);
+  }, [address, mintedIds, ownerResults, armiesResults, countries, neighborsByCode]);
 
   useEffect(() => {
     setBets(loadLocalBets());
@@ -169,12 +214,18 @@ export default function Dashboard() {
     };
   }, [bets]);
 
-  const removeBet = (id: string) => {
-    const next = bets.filter((bet) => bet.id !== id);
-    setBets(next);
-    saveLocalBets(next);
-  };
-
+  const visibleBets = useMemo(() => {
+    if (!address) return bets;
+    return bets.filter((bet) => !bet.player || bet.player.toLowerCase() === address.toLowerCase());
+  }, [bets, address]);
+  const activeBets = useMemo(
+    () => visibleBets.filter((bet) => bet.status !== "closed"),
+    [visibleBets],
+  );
+  const pastBets = useMemo(
+    () => visibleBets.filter((bet) => bet.status === "closed"),
+    [visibleBets],
+  );
   const closeBet = async (bet: LocalBet) => {
     if (bet.status === "closed") return;
     const existingSnapshot = marketSnapshots[bet.id];
@@ -184,6 +235,9 @@ export default function Dashboard() {
         () => null,
       );
       priceCents = snapshot?.priceCents;
+    }
+    if (priceCents === undefined) {
+      priceCents = bet.entryPriceCents;
     }
     const next = bets.map((item) =>
       item.id === bet.id
@@ -262,7 +316,7 @@ export default function Dashboard() {
         />
       </div>
 
-      <h2 style={{ marginTop: "30px", fontSize: "20px" }}>Your Bets</h2>
+      <h2 style={{ marginTop: "30px", fontSize: "20px" }}>Active Bets</h2>
       <div
         style={{
           marginTop: "16px",
@@ -271,13 +325,32 @@ export default function Dashboard() {
           gap: "18px",
         }}
       >
-        {bets.length === 0 && <div style={{ color: "#94a3b8" }}>No bets yet.</div>}
-        {bets.map((bet) => (
+        {activeBets.length === 0 && <div style={{ color: "#94a3b8" }}>No active bets.</div>}
+        {activeBets.map((bet) => (
           <BetCard
             key={bet.id}
             bet={bet}
             snapshot={marketSnapshots[bet.id]}
-            onRemove={() => removeBet(bet.id)}
+            onClose={() => closeBet(bet)}
+          />
+        ))}
+      </div>
+
+      <h2 style={{ marginTop: "30px", fontSize: "20px" }}>Past Bets</h2>
+      <div
+        style={{
+          marginTop: "16px",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+          gap: "18px",
+        }}
+      >
+        {pastBets.length === 0 && <div style={{ color: "#94a3b8" }}>No past bets.</div>}
+        {pastBets.map((bet) => (
+          <BetCard
+            key={bet.id}
+            bet={bet}
+            snapshot={marketSnapshots[bet.id]}
             onClose={() => closeBet(bet)}
           />
         ))}
@@ -306,9 +379,6 @@ export default function Dashboard() {
               boxShadow: "0 8px 18px rgba(0,0,0,0.45)",
             }}
           >
-            <div style={{ fontSize: "13px", color: "#94a3b8" }}>
-              NFT #{String(territory.id).padStart(3, "0")}
-            </div>
             <div style={{ fontSize: "18px", fontWeight: 700, marginTop: "6px" }}>
               {territory.name}
             </div>
@@ -325,7 +395,7 @@ export default function Dashboard() {
               </span>
             </div>
             <div style={{ marginTop: "8px", fontSize: "13px", color: "#cbd5f5" }}>
-              Borders: <span style={{ color: "#94a3b8" }}>{territory.neighbors.length}</span>
+              Borders: <span style={{ color: "#94a3b8" }}>{territory.neighbors}</span>
             </div>
           </div>
         ))}
@@ -354,12 +424,10 @@ function StatCard({ label, value, accent }: { label: string; value: string; acce
 function BetCard({
   bet,
   snapshot,
-  onRemove,
   onClose,
 }: {
   bet: LocalBet;
   snapshot?: MarketSnapshot;
-  onRemove: () => void;
   onClose: () => void;
 }) {
   const { writeContract, isPending } = useWriteContract();
@@ -466,21 +534,6 @@ function BetCard({
           }}
         >
           {closed ? "Closed" : "Close"}
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          style={{
-            flex: 1,
-            padding: "8px 12px",
-            borderRadius: "8px",
-            border: "1px solid rgba(239, 68, 68, 0.5)",
-            background: "rgba(127, 29, 29, 0.7)",
-            color: "#fecaca",
-            cursor: "pointer",
-          }}
-        >
-          Hide
         </button>
       </div>
     </div>

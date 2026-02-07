@@ -9,6 +9,7 @@ import Polymarket from "./pages/Polymarket";
 import MapV2 from "./pages/MapV2";
 import Dashboard from "./pages/Dashboard";
 import Stats from "./pages/Stats";
+import PlayerProfile from "./pages/PlayerProfile";
 
 function App() {
   useEffect(() => {
@@ -36,6 +37,7 @@ function App() {
             <Route path="/polymarket" element={<Polymarket />} />
             <Route path="/stats" element={<Stats />} />
             <Route path="/admin" element={<Admin />} />
+            <Route path="/profile/:address" element={<PlayerProfile />} />
           </Routes>
         </main>
       </div>
